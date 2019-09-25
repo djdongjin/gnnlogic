@@ -13,7 +13,7 @@ class SimpleEncoder(Net):
     """
     Simple LSTM Encoder
     """
-    def __init__(self, model_config, shared_embeddings=None):
+    def __init__(self, model_config, shared_embeddings=None, use_embedding=True):
         super().__init__(model_config)
 
         if not shared_embeddings:
@@ -30,10 +30,13 @@ class SimpleEncoder(Net):
             dropout=model_config.encoder.dropout
         )
 
+        self.use_embedding = use_embedding
+
     def forward(self, batch):
         data = batch.inp
         inp_len = np.array(batch.inp_lengths)
-        data = self.embedding(data)
+        if self.use_embedding:
+            data = self.embedding(data)
         # sort
         inp_len_sorted, idx_sort = np.sort(inp_len)[::-1], np.argsort(-inp_len)
         inp_len_sorted = inp_len_sorted.copy()
@@ -133,7 +136,10 @@ class SimpleDecoder(Net):
                 emb = torch.max(encoder_outputs, 1)[0]
             elif self.pool_type == 'mean':
                 sent_len = torch.FloatTensor(batch.inp_lengths.copy()).unsqueeze(1).to(encoder_outputs.device)
-                emb = torch.sum(encoder_outputs, 1).squeeze(0)
+                emb = torch.sum(encoder_outputs, 1)
+                # BUG FIX: fails if batchsize is 1
+                if emb.dim() > 2:
+                    emb = emb.squeeze(0)
                 emb = emb / sent_len.expand_as(emb)
             elif self.pool_type == 'concat':
                 sent_len = torch.FloatTensor(batch.inp_lengths.copy()).unsqueeze(1).to(encoder_outputs.device)

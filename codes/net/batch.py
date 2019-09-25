@@ -25,10 +25,14 @@ class Batch:
             sentence_pointer = None,    # each pair of nodes point to a specific sentence by using a one-hot vector over the sentences (in batch mode), (B x n x n x w)
             config = None,
             orig_inp = None,            # Unmodified input
+            orig_inp_sent = None,       # Unmodified input, sentence tokenized (list of list)
             inp_row_pos = None,         # position over input text (B x s x w)
             geo_batch = None,           # Pytorch Geometric Batch object (collection of Pytorch Data objects),
             geo_slices = None,          # Pytorch Geometric slices, to restore the original splits
             query_edge = None,          # tensor B x 2 of query edges
+            bert_inp = None,            # tensor B x s, right now this contains the entity ids to be used with bert lstm
+            bert_input_mask=None,       # input mask, 1 for words and 0 for padding
+            bert_segment_ids=None,      # segment id, unique for each sentence
             ):
 
         """
@@ -75,10 +79,14 @@ class Batch:
         self.encoder_model = None
         self.sentence_pointer = sentence_pointer
         self.orig_inp = orig_inp
+        self.orig_inp_sent = orig_inp_sent
         self.inp_row_pos = inp_row_pos
         self.geo_batch = geo_batch
         self.geo_slices = geo_slices
         self.query_edge = query_edge
+        self.bert_inp = bert_inp
+        self.bert_input_mask = bert_input_mask
+        self.bert_segment_ids = bert_segment_ids
 
     def to_device(self, device):
         self.inp = self.inp.to(device)
@@ -99,6 +107,12 @@ class Batch:
             self.geo_batch = self.geo_batch.to(device)
         if self.query_edge is not None:
             self.query_edge = self.query_edge.to(device)
+        if self.bert_inp is not None:
+            self.bert_inp = self.bert_inp.to(device)
+        if self.bert_input_mask is not None:
+            self.bert_input_mask = self.bert_input_mask.to(device)
+        if self.bert_segment_ids is not None:
+            self.bert_segment_ids = self.bert_segment_ids.to(device)
 
     def _process_adj_mat(self):
         """
@@ -129,11 +143,15 @@ class Batch:
                      sentence_pointer=None,
                      # each pair of nodes point to a specific sentence by using a one-hot vector over the sentences (in batch mode), (B x n x n x w)
                      config=self.config,
-                     orig_inp=None,  # Unmodified input
+                     orig_inp=self.orig_inp,  # Unmodified input
+                     orig_inp_sent=self.orig_inp_sent, # Unmodified input, sentence tokenized
                      inp_row_pos=None,  # position over input text (B x s x w)
                      geo_batch=self.geo_batch,  # Pytorch Geometric Batch object (collection of Pytorch Data objects),
                      geo_slices=self.geo_slices,  # Pytorch Geometric slices, to restore the original splits
                      query_edge=self.query_edge.clone().detach(),
+                     bert_inp=self.bert_inp.clone().detach(), # right now this contains the entity ids to be used with bert lstm
+                     bert_input_mask=self.bert_input_mask.clone().detach(),
+                     bert_segment_ids=self.bert_segment_ids.clone().detach()
                      )
 
 
