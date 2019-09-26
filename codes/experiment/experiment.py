@@ -80,7 +80,8 @@ def run_experiment(config, exp, resume=False):
     test_files = glob.glob(os.path.join(base_path, "*_test.csv"))
     assert len(test_files) > 0  # make sure there exist at least one test file
     print(test_files)
-    assert len(test_files) == len(data_config['test_tasks'])
+    print(data_config['test_tasks'])
+    # assert len(test_files) == len(data_config['test_tasks'])
     config.dataset.test_files = test_files
     # generate dictionary
     generate_dictionary(config)
@@ -333,8 +334,8 @@ def _run_one_epoch(dataloader, experiment, mode, filename=''):
         assert len(true_inp) == len(true_outp) == len(pred_outp)
         write_sequences(true_inp, true_outp, pred_outp, mode, experiment.epoch_index,
                         exp_name=experiment.config.general.id, test_fl=filename, conf=confidences, classes=experiment.config.model.classes)
-    #if experiment.config.general.mode == 'train' and experiment.config.model.checkpoint:
-    #    experiment.save_checkpoint(is_best=False)
+    if experiment.config.general.mode == 'train' and experiment.config.model.checkpoint:
+       experiment.save_checkpoint(is_best=False)
 
     return loss, epoch_rel
 
