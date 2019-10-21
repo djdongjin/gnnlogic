@@ -5,6 +5,7 @@ from addict import Dict
 import os
 import numpy as np
 
+from codes.net.infomax_trainer import InfoMaxTrainer
 from codes.utils.util import get_device_name
 from codes.net.net_registry import choose_model
 from codes.net.trainer import Trainer
@@ -110,6 +111,7 @@ def run_experiment(config, exp, resume=False):
     config.model.max_word_length = data_util.max_word_length
     config.model.edge_types = len(data_util.unique_edge_dict)
     config.model.unique_nodes = len(data_util.unique_nodes)
+    config.model.model_save_path = experiment.model_save_path
 
     ## set the edge dimension w.r.t the edge encoder
     if config.model.encoder.bidirectional and config.model.graph.edge_embedding == 'lstm':
@@ -126,6 +128,8 @@ def run_experiment(config, exp, resume=False):
 
     experiment.data_util = data_util
     experiment.dataloaders.train = data_util.get_dataloader(mode='train')
+    if experiment.config.model.infomax.negative_batch:
+        experiment.dataloaders.train_negative = data_util.get_dataloader(mode='train', shuffle=True)
     experiment.dataloaders.val = data_util.get_dataloader(mode='val')
     experiment.dataloaders.test = {}
     for test_file in sorted(config.dataset.test_files):
@@ -137,10 +141,16 @@ def run_experiment(config, exp, resume=False):
     experiment.model.encoder = experiment.model.encoder.to(device)
     experiment.model.decoder = experiment.model.decoder.to(device)
     print(experiment.model)
-    experiment.trainer = Trainer(
-        config.model, experiment.model.encoder,
-        experiment.model.decoder,
-        max_entity_id=data_util.max_entity_id)
+    if config.model.name == 'infomax':
+        experiment.trainer = InfoMaxTrainer(
+            config.model, experiment.model.encoder,
+            experiment.model.decoder,
+            max_entity_id=data_util.max_entity_id)
+    else:
+        experiment.trainer = Trainer(
+            config.model, experiment.model.encoder,
+            experiment.model.decoder,
+            max_entity_id=data_util.max_entity_id)
 
     experiment.optimizers, experiment.schedulers = experiment.trainer.get_optimizers()
     if resume or config.general.mode == 'infer':
@@ -175,7 +185,7 @@ def _run_epochs(experiment):
     for key in validation_metrics_dict:
         validation_metrics_dict[key].reset()
     while experiment.epoch_index <= config.model.num_epochs:
-    #while not validation_metrics_dict[metric_to_perform_early_stopping].should_stop_early():
+        # while not validation_metrics_dict[metric_to_perform_early_stopping].should_stop_early():
         print('Should stop early : ', validation_metrics_dict[metric_to_perform_early_stopping].should_stop_early())
         print(validation_metrics_dict[metric_to_perform_early_stopping])
         experiment.epoch_index += 1
@@ -201,24 +211,25 @@ def _run_epochs(experiment):
             experiment.config.log.logger.info("{} of the best performing model = {}".format(
                 key, value.get_best_so_far()))
         experiment.config.log.logger.info("Best performing epoch id {}".format(best_epoch_index))
-        #print("Test score corresponding to best performing epoch id {}".format(best_epoch_index))
-        #print(', '.join(test_acc_per_epoch[best_epoch_index - 1]))
-
+        # print("Test score corresponding to best performing epoch id {}".format(best_epoch_index))
+        # print(', '.join(test_acc_per_epoch[best_epoch_index - 1]))
 
 
 def _run_one_epoch_train_val(experiment):
-    train_loss, train_acc, val_acc, val_loss = 0,0,0,0
-    if (experiment.dataloaders.train):
+    train_loss, train_acc, val_acc, val_loss = 0, 0, 0, 0
+    if experiment.dataloaders.train:
         with experiment.comet_ml.train():
             train_loss, train_acc = _run_one_epoch(experiment.dataloaders.train, experiment,
                            mode="train",
-                           filename=experiment.config.dataset.train_file)
-    if (experiment.dataloaders.val):
+                           filename=experiment.config.dataset.train_file,
+                           neg_dataloader=experiment.dataloaders.train_negative)
+    if experiment.dataloaders.val:
         with experiment.comet_ml.validate():
             val_loss, val_acc = _run_one_epoch(experiment.dataloaders.val, experiment,
                            mode="val",
                            filename=experiment.config.dataset.train_file)
     return train_loss, train_acc, val_loss, val_acc
+
 
 def _run_one_epoch_test(experiment):
     test_accs = []
@@ -246,12 +257,11 @@ def _run_one_epoch_test(experiment):
     return test_accs
 
 
-
-def _run_one_epoch(dataloader, experiment, mode, filename=''):
+def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=None):
     trainer = experiment.trainer
     optimizers = experiment.optimizers
     should_train = False
-    if (mode == "train"):
+    if mode == "train":
         should_train = True
 
     if should_train:
@@ -272,8 +282,19 @@ def _run_one_epoch(dataloader, experiment, mode, filename=''):
     log_batch_rel = []
     batch_size = len(dataloader)
 
-    for batch_idx, batch in enumerate(dataloader):
+    double_batch = neg_dataloader is not None and len(neg_dataloader) > 0
+    if double_batch:
+        iter_obj = zip(dataloader, neg_dataloader)
+    else:
+        iter_obj = dataloader
+    for batch_idx, batch_pair in enumerate(iter_obj):
         experiment.iteration_index[mode] += 1
+
+        if double_batch:
+            batch, batch_neg = batch_pair
+            batch_neg.to_device(experiment.device)
+        else:
+            batch, batch_neg = batch_pair, None
         batch.config = experiment.config
         # batch.process_adj_mat()
         batch.to_device(experiment.device)
@@ -282,7 +303,10 @@ def _run_one_epoch(dataloader, experiment, mode, filename=''):
             for optimizer in optimizers:
                 optimizer.zero_grad()
 
-        outputs, loss, conf = trainer.batchLoss(batch)
+        if batch_neg:
+            outputs, loss, conf = trainer.batchLoss(batch, batch_neg=batch_neg)
+        else:
+            outputs, loss, conf = trainer.batchLoss(batch)
 
         batch_loss = loss.item()
         if (should_train):
@@ -311,6 +335,8 @@ def _run_one_epoch(dataloader, experiment, mode, filename=''):
         epoch_rel.append(accuracy)
 
         del batch
+        if batch_neg:
+            del batch_neg
 
     loss = aggregated_batch_loss / num_examples
     epoch_rel = np.mean(epoch_rel)

@@ -23,6 +23,11 @@ def choose_model(config):
     decoder_module = _import_module(decoder_model_name)
     return encoder_module(model_config), decoder_module(model_config)
 
+
+def choose_encoder(model_config, name):
+    encoder_module = _import_module(name)
+    return encoder_module(model_config)
+
 def _import_module(full_module_name):
     """
     Import className from python file

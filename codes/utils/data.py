@@ -25,6 +25,7 @@ from pytorch_pretrained_bert.tokenization import BertTokenizer
 from tqdm import tqdm
 import pdb
 import logging
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -39,14 +40,16 @@ END_TOKEN = '</s>'
 CLS_TOKEN = "[CLS]"
 SEP_TOKEN = "[SEP]"
 
+
 class DataRow():
     """
     Defines a single instance of data row
     """
+
     def __init__(self):
         self.id = None
         self.story = None
-        self.story_sents = None # same story, but sentence tokenized
+        self.story_sents = None  # same story, but sentence tokenized
         self.query = None
         self.text_query = None
         self.target = None
@@ -64,6 +67,7 @@ class DataUtility():
     """
     Data preparation and utility class
     """
+
     def __init__(self,
                  config,
                  num_workers=4,
@@ -99,7 +103,7 @@ class DataUtility():
         self.target_id2word = {}
         # dict of dataRows
         # all rows are indexed by their key `id`
-        self.dataRows = {'train':{}, 'test':{}}
+        self.dataRows = {'train': {}, 'test': {}}
 
         self.train_indices = []
         self.test_indices = []
@@ -116,10 +120,10 @@ class DataUtility():
         self.test_file = ''
         self.max_ents = 0
         self.entity_ids = []
-        self.entity_map = {} # map entity for each puzzle
+        self.entity_map = {}  # map entity for each puzzle
         self.max_entity_id = 0
         self.adj_graph = []
-        self.dummy_entity = '' # return this entity when UNK entity
+        self.dummy_entity = ''  # return this entity when UNK entity
         self.load_dictionary = config.dataset.load_dictionary
         self.max_sent_length = 0
         self.unique_edge_dict = {}
@@ -129,10 +133,10 @@ class DataUtility():
         self.data_has_target = False
         self.data_has_text_target = False
         self.data_has_raw_graph = False
-        self.preprocessed = set() # set of puzzle ids which has been preprocessed
+        self.preprocessed = set()  # set of puzzle ids which has been preprocessed
         self.max_sent_length = 0
         self.max_word_length = 0
-        self.unique_nodes = set() # nodes for the raw graph
+        self.unique_nodes = set()  # nodes for the raw graph
 
     def process_data(self, base_path, train_file, load_dictionary=True, preprocess=True):
         """
@@ -149,7 +153,7 @@ class DataUtility():
             logging.info("Loading dictionary from {}".format(dictionary_file))
             dictionary = json.load(open(dictionary_file))
             # fix id2word keys
-            dictionary['id2word'] = {int(k):v for k,v in dictionary['id2word'].items()}
+            dictionary['id2word'] = {int(k): v for k, v in dictionary['id2word'].items()}
             dictionary['target_id2word'] = {int(k): v for k, v in dictionary['target_id2word'].items()}
             for key, value in dictionary.items():
                 setattr(self, key, value)
@@ -167,7 +171,7 @@ class DataUtility():
         :param test_files: array of file names
         :return:
         """
-        self.test_files = test_files #[os.path.join(base_path, t) + '_test.csv' for t in test_files]
+        self.test_files = test_files  # [os.path.join(base_path, t) + '_test.csv' for t in test_files]
         test_datas = [pd.read_csv(tf, comment='#') for tf in self.test_files]
         for test_data in test_datas:
             self._check_data(test_data)
@@ -180,7 +184,6 @@ class DataUtility():
             p_tests.append(test_data)
         self.test_data = p_tests
         logging.info("Done preprocessing test data")
-
 
     def _check_data(self, data):
         """
@@ -216,7 +219,8 @@ class DataUtility():
             self.data_has_text_query = True
         else:
             data['text_query'] = ''
-        if "story_edges" in list(data.columns) and "edge_types" in list(data.columns) and "query_edge" in list(data.columns):
+        if "story_edges" in list(data.columns) and "edge_types" in list(data.columns) and "query_edge" in list(
+                data.columns):
             self.data_has_raw_graph = True
         return data
 
@@ -230,7 +234,7 @@ class DataUtility():
         """
         max_ents = 0
         if placeholder == '[]':
-            for i,row in data.iterrows():
+            for i, row in data.iterrows():
                 story = row['story']
                 ents = re.findall('\[(.*?)\]', story)
                 uniq_ents = set(ents)
@@ -291,7 +295,7 @@ class DataUtility():
             # assign target ids
             self.assign_target_id(list(data['target']))
 
-        for i,row in data.iterrows():
+        for i, row in data.iterrows():
             dataRow = DataRow()
             dataRow.id = row['id']
             story_sents = sent_tokenize(row['story'])
@@ -304,7 +308,7 @@ class DataUtility():
                 story_sents[0] = [CLS_TOKEN] + story_sents[0]
             words.update([word for sent in story_sents for word in sent])
             dataRow.story_sents = story_sents
-            dataRow.story = [word for sent in story_sents for word in sent] # flatten
+            dataRow.story = [word for sent in story_sents for word in sent]  # flatten
             max_word_length = max(max_word_length, len(dataRow.story))
             if self.data_has_text_target:
                 # preprocess text_target
@@ -360,17 +364,15 @@ class DataUtility():
                                                                   mode))
             self.max_sent_length = max_sent_length
         else:
-            for i,row in data.iterrows():
+            for i, row in data.iterrows():
                 dR = self.dataRows[mode][test_file][row['id']]
                 # dR.story_graph = self.prepare_ent_graph(dR.story_sents)
-                ct +=1
+                ct += 1
             logging.info("Processed {} stories in mode {} and file: {}".format(
                 ct, mode, test_file))
 
         # update the max sentence length
         self.max_word_length = max(self.max_word_length, max_word_length)
-
-
 
     def tokenize(self, sent):
         """
@@ -387,7 +389,7 @@ class DataUtility():
         # correct for tokenizing @entity
         corr_w = []
         tmp_w = ''
-        for i,w in enumerate(words):
+        for i, w in enumerate(words):
             if w == '@':
                 tmp_w = w
             else:
@@ -398,7 +400,7 @@ class DataUtility():
 
     def _insert_wordid(self, token, id):
         if token not in self.word2id:
-            assert id not in set([v for k,v in self.word2id.items()])
+            assert id not in set([v for k, v in self.word2id.items()])
             self.word2id[token] = id
             self.id2word[id] = token
 
@@ -419,12 +421,12 @@ class DataUtility():
             words = list(words.keys())
         # add pad token
         self._insert_wordid(PAD_TOKEN, count)
-        count +=1
+        count += 1
         # reserve a block for entities. Record this block for future use.
         start_ent_num = count
         for idx in range(self.num_entity_block):
             self._insert_wordid('@ent{}'.format(idx), count)
-            count +=1
+            count += 1
         # not reserving a dummy entity now as we are reserving a whole block
         # reserve a dummy entity
         # self.dummy_entity = '@ent{}'.format(self.max_ents - 1)
@@ -445,7 +447,7 @@ class DataUtility():
         for word in words:
             if word not in self.word2id:
                 self._insert_wordid(word, len(self.word2id))
-                #count += 1
+                # count += 1
 
         logging.info("Modified dictionary. Words : {}, Entities : {}".format(
             len(self.word2id), len(self.entity_ids)))
@@ -475,7 +477,6 @@ class DataUtility():
         self.val_indices = [self.dataRows['train'][i].id for i in indices if i not in set(mask_i)]
         self.train_indices = [self.dataRows['train'][i].id for i in indices if i in set(mask_i)]
 
-
     def prepare_ent_graph(self, sents, max_nodes=0):
         """
         Given a list of sentences, return an adjacency matrix between entities
@@ -498,7 +499,7 @@ class DataUtility():
                     adj_mat[ent2_id][ent1_id] = 1
         return adj_mat
 
-    def prepare_for_dataloader(self, dataRows:List[DataRow], bert_cache:BertLocalCache=None) -> List[DataRow]:
+    def prepare_for_dataloader(self, dataRows: List[DataRow], bert_cache: BertLocalCache = None) -> List[DataRow]:
         """
         Offload processing from dataloader get_item to here.
         :param dataRows:
@@ -523,15 +524,15 @@ class DataUtility():
                 s_inp_row = [self.bert_tokenizer.convert_tokens_to_ids(sent) for sent in dataRow.story_sents]
             else:
                 s_inp_row = [[self.get_token(word) for word in sent] for sent in dataRow.story_sents]
-            #s_inp_ents = [[id for id in sent if id in self.entity_ids] for sent in inp_row]
-            #s_inp_row_pos = [[widx + 1 for widx, word in enumerate(sent)] for sent in inp_row]
+            # s_inp_ents = [[id for id in sent if id in self.entity_ids] for sent in inp_row]
+            # s_inp_row_pos = [[widx + 1 for widx, word in enumerate(sent)] for sent in inp_row]
 
             # for word tokenizations
             # sent_lengths = [len(dataRow.story)]
             bert_entity_dict = {}
             if self.process_bert:
                 inp_row = [word for sent in s_inp_row for word in sent]
-                entity_ids = [str(x-1) for x in self.entity_ids] # -1 to accomodate 0
+                entity_ids = [str(x - 1) for x in self.entity_ids]  # -1 to accomodate 0
                 bert_entity_ids = self.bert_tokenizer.convert_tokens_to_ids(entity_ids)
                 for entid, b_entid in zip(entity_ids, bert_entity_ids):
                     bert_entity_dict[b_entid] = entid
@@ -545,8 +546,7 @@ class DataUtility():
             # for BERT, the segment ids denote each sentence.
             bert_segment_ids = []
             for s_id, sent in enumerate(s_inp_row):
-                bert_segment_ids.extend([0]*len(sent))
-
+                bert_segment_ids.extend([0] * len(sent))
 
             ## calculate one-hot mask for entities which are used in this row
             flat_inp_ents = inp_ents
@@ -555,7 +555,7 @@ class DataUtility():
 
             if self.process_bert:
                 inp_ent_mask = [1 if w in bert_entity_dict else 0 for w in inp_row]
-                bert_inp = [int(bert_entity_dict[w])+1 if w in bert_entity_dict else 0 for w in inp_row]
+                bert_inp = [int(bert_entity_dict[w]) + 1 if w in bert_entity_dict else 0 for w in inp_row]
             else:
                 inp_ent_mask = [1 if idx + 1 in flat_inp_ents else 0 for idx in range(len(self.entity_ids))]
                 bert_inp = inp_row  # dummy
@@ -619,12 +619,12 @@ class DataUtility():
             query_edge = [dataRow.query_edge]
             num_nodes = [len(nodes)]
             dataRow.pattrs = [inp_row, s_inp_row, inp_ents, query, text_query, query_mask, target, text_target,
-               sent_lengths, inp_ent_mask, geo_data, query_edge, num_nodes, sentence_pointer, orig_inp, orig_inp_sent, bert_inp,
+                              sent_lengths, inp_ent_mask, geo_data, query_edge, num_nodes, sentence_pointer, orig_inp,
+                              orig_inp_sent, bert_inp,
                               inp_row_pos, bert_input_mask, bert_segment_ids]
         return dataRows
 
-
-    def get_dataloader(self, mode='train', test_file='', bert_cache=None):
+    def get_dataloader(self, mode='train', test_file='', bert_cache=None, shuffle=False):
         """
         Return a new SequenceDataLoader instance with appropriate rows
         :param mode: train/val/test
@@ -637,7 +637,7 @@ class DataUtility():
                 indices = self.val_indices
             dataRows = self._select(self.dataRows['train'], indices)
         else:
-            dataRows = [v for k,v in self.dataRows['test'][test_file].items()]
+            dataRows = [v for k, v in self.dataRows['test'][test_file].items()]
 
         logging.info("Total rows : {}, batches : {}"
                      .format(len(dataRows),
@@ -648,6 +648,8 @@ class DataUtility():
             collate_FN = sent_collate_fn
 
         dataRows = self.prepare_for_dataloader(dataRows, bert_cache)
+        if shuffle:
+            random.shuffle(dataRows)
 
         """
 
@@ -659,15 +661,14 @@ class DataUtility():
         """
         batches = self.precompute_batches(dataRows)
 
-        return data.DataLoader(PreComputedDataLoader(batches),batch_size=1, collate_fn=pre_collate_fn)
+        return data.DataLoader(PreComputedDataLoader(batches), batch_size=1, collate_fn=pre_collate_fn)
 
-
-    def precompute_batches(self, dataRows:List[DataRow]):
+    def precompute_batches(self, dataRows: List[DataRow]):
         print("precomputing batches...")
         batch_size = self.config.model.batch_size
         batches = []
         for i in range(0, len(dataRows), batch_size):
-            data = [dataRows[i].pattrs for i in range(i, i+batch_size) if i < len(dataRows)]
+            data = [dataRows[i].pattrs for i in range(i, i + batch_size) if i < len(dataRows)]
             data.sort(key=lambda x: len(x[0]), reverse=True)
             inp_data, s_inp_data, inp_ents, query, text_query, query_mask, target, text_target, \
             sent_lengths, inp_ent_mask, geo_data, query_edge, num_nodes, \
@@ -679,7 +680,7 @@ class DataUtility():
             text_target, text_target_lengths = simple_merge(text_target)
             bert_input_mask, _ = simple_merge(bert_input_mask)
             bert_segment_ids, _ = simple_merge(bert_segment_ids)
-            inp_ent_mask,_ = simple_merge(inp_ent_mask)
+            inp_ent_mask, _ = simple_merge(inp_ent_mask)
 
             query = torch.LongTensor(query)
             query_mask = pad_ents(query_mask, inp_lengths)
@@ -694,7 +695,7 @@ class DataUtility():
             # update the slices - same number of nodes
             slices = [max_node for s in slices]
             query_edge = torch.LongTensor(query_edge)
-            bert_inp,_ = simple_merge(bert_inp) #torch.cat(bert_inp, dim=0)
+            bert_inp, _ = simple_merge(bert_inp)  # torch.cat(bert_inp, dim=0)
             # assert bert_inp.size(0) == batch_size
 
             # prepare batch
@@ -719,12 +720,12 @@ class DataUtility():
                 bert_segment_ids=bert_segment_ids,
                 bert_input_mask=bert_input_mask
             )
-            #batch.to_device('cuda')
+            # batch.to_device('cuda')
             batches.append(batch)
         print("done precomputing batches {}".format(len(batches)))
         return batches
 
-    def update_bert_cache(self, bert_cache:BertLocalCache):
+    def update_bert_cache(self, bert_cache: BertLocalCache):
         """
         Preload all sentences from BERT
         :param bert_cache:
@@ -738,7 +739,6 @@ class DataUtility():
             for idx, dataRow in dataRows.items():
                 bert_cache.update_cache(dataRow.story_sents)
         bert_cache.run_bert()
-
 
     def map_text_to_id(self, text):
         if isinstance(text, list):
@@ -767,7 +767,7 @@ class DataUtility():
         :param mask: boolean mask
         :return: filtered
         """
-        return [array[i] for i,p in enumerate(mask) if p]
+        return [array[i] for i, p in enumerate(mask) if p]
 
     def _select(self, array, indices):
         """
@@ -790,7 +790,7 @@ class DataUtility():
         :param filename: location
         :return: None
         """
-        #pkl.dump(self.__dict__, open(filename, 'wb'))
+        # pkl.dump(self.__dict__, open(filename, 'wb'))
         logging.info("Saved data in {}".format(filename))
 
     def load(self, filename='data_files.pkl'):
@@ -799,8 +799,8 @@ class DataUtility():
         :param filename: location
         :return:
         """
-        #logging.info("Loading data from {}".format(filename))
-        #self.__dict__.update(pkl.load(open(filename,'rb')))
+        # logging.info("Loading data from {}".format(filename))
+        # self.__dict__.update(pkl.load(open(filename,'rb')))
         logging.info("Loaded")
 
 
@@ -809,7 +809,7 @@ class SequenceDataLoader(data.Dataset):
     Separate dataloader instance
     """
 
-    def __init__(self, dataRows:List[DataRow]):
+    def __init__(self, dataRows: List[DataRow]):
         """
         :param dataRows: training / validation / test data rows
         :param data: pointer to DataUtility class
@@ -851,6 +851,7 @@ class PreComputedDataLoader(data.Dataset):
     def __len__(self):
         return len(self.batches)
 
+
 def pre_collate_fn(data):
     assert len(data) == 1
     return data[0]
@@ -862,6 +863,7 @@ def simple_merge(rows):
     padded_rows = pad_rows(rows, lengths)
     return padded_rows, lengths
 
+
 def nested_merge(rows):
     lengths = []
     for row in rows:
@@ -872,10 +874,12 @@ def nested_merge(rows):
     padded_rows = pad_nested_row(rows, lengths)
     return padded_rows, lengths
 
+
 def simple_np_merge(rows):
     lengths = [len(row) for row in rows]
     padded_rows = pad_rows(rows, lengths)
     return padded_rows, lengths
+
 
 def collate_fn(data):
     """
@@ -885,7 +889,8 @@ def collate_fn(data):
     """
     ## sort dataset by inp sentences
     data.sort(key=lambda x: len(x[0]), reverse=True)
-    inp_data, s_inp_data, inp_ents, query, text_query, query_mask, target, text_target, sent_lengths, inp_ent_mask, geo_data, query_edge, num_nodes, *_ = zip(*data)
+    inp_data, s_inp_data, inp_ents, query, text_query, query_mask, target, text_target, sent_lengths, inp_ent_mask, geo_data, query_edge, num_nodes, *_ = zip(
+        *data)
     inp_data, inp_lengths = simple_merge(inp_data)
     s_inp_data, sent_lengths = sent_merge(s_inp_data, sent_lengths)
     # outp_data, outp_lengths = simple_merge(outp_data)
@@ -894,11 +899,13 @@ def collate_fn(data):
     query = torch.LongTensor(query)
     query_mask = pad_ents(query_mask, inp_lengths)
     target = torch.LongTensor(target)
-    #geo_data_col, geo_data_slices = collate_geometric(geo_data)
+    # geo_data_col, geo_data_slices = collate_geometric(geo_data)
     slices = [p for n in num_nodes for p in n]
     max_node = max(slices)
     # add extra node to all graphs in order to have padding
-    geo_data = [GeometricData(x=torch.arange(max_node).unsqueeze(1), edge_index=gd['edge_index'], edge_attr=gd['edge_attr'], y=gd['y']) for gd in geo_data]
+    geo_data = [
+        GeometricData(x=torch.arange(max_node).unsqueeze(1), edge_index=gd['edge_index'], edge_attr=gd['edge_attr'],
+                      y=gd['y']) for gd in geo_data]
     geo_batch = GeometricBatch.from_data_list(geo_data)
     # update the slices - same number of nodes
     slices = [max_node for s in slices]
@@ -916,13 +923,14 @@ def collate_fn(data):
         inp_ents=inp_ents,
         query=query,
         query_mask=query_mask,
-        inp_ent_mask = torch.LongTensor(inp_ent_mask),
+        inp_ent_mask=torch.LongTensor(inp_ent_mask),
         geo_batch=geo_batch,
         query_edge=query_edge,
         geo_slices=slices
     )
 
     return batch
+
 
 def sent_merge(rows, sent_lengths):
     """
@@ -932,12 +940,12 @@ def sent_merge(rows, sent_lengths):
     padded_rows = 2 x 3 x 4
     :return:
     """
-    lengths = [len(row) for row in rows] # number of sent in each batch
-    max_sent_l = max([n for sentl in sent_lengths for n in sentl]) # max number of words in each sent
+    lengths = [len(row) for row in rows]  # number of sent in each batch
+    max_sent_l = max([n for sentl in sent_lengths for n in sentl])  # max number of words in each sent
     padded_rows = torch.zeros(len(rows), max(lengths), max_sent_l).long()
-    for i,row in enumerate(rows):
+    for i, row in enumerate(rows):
         end = lengths[i]
-        for j,sent_row in enumerate(row):
+        for j, sent_row in enumerate(row):
             padded_rows[i, j, :sent_lengths[i][j]] = torch.LongTensor(sent_row)
     # pad sent lengths
     padded_lens = []
@@ -949,6 +957,7 @@ def sent_merge(rows, sent_lengths):
             padded_lens.append(srow)
     return padded_rows, padded_lens
 
+
 def sent_collate_fn(data):
     """
     helper function for torch.DataLoader
@@ -959,8 +968,8 @@ def sent_collate_fn(data):
 
     ## sort dataset by number of sentences
     data.sort(key=lambda x: len(x[0]), reverse=True)
-    inp_data, inp_ents, query, text_query, query_mask, target, text_target, inp_graphs\
-        , sent_lengths, inp_ent_mask, sentence_pointer\
+    inp_data, inp_ents, query, text_query, query_mask, target, text_target, inp_graphs \
+        , sent_lengths, inp_ent_mask, sentence_pointer \
         , orig_inp, inp_row_pos = zip(*data)
 
     inp_data, inp_lengths = sent_merge(inp_data, sent_lengths)
@@ -968,7 +977,7 @@ def sent_collate_fn(data):
     max_node, _, _ = sentence_pointer[0].shape
     sentence_pointer = [sp.reshape(-1, sp.shape[2]) for sp in sentence_pointer]
     sentence_pointer = [sp.tolist() for sp in sentence_pointer]
-    sentence_pointer = [s for sp in sentence_pointer for s in sp] # flatten
+    sentence_pointer = [s for sp in sentence_pointer for s in sp]  # flatten
     sentence_pointer, sent_lens = simple_merge(sentence_pointer)
     sentence_pointer = sentence_pointer.view(inp_data.size(0), max_node, max_node, -1)
 
@@ -992,13 +1001,13 @@ def sent_collate_fn(data):
         query_mask=query_mask,
         inp_graphs=torch.LongTensor(inp_graphs),
         sentence_pointer=sentence_pointer,
-        orig_inp = orig_inp,
-        inp_ent_mask = torch.LongTensor(inp_ent_mask),
-        inp_row_pos = inp_row_pos
+        orig_inp=orig_inp,
+        inp_ent_mask=torch.LongTensor(inp_ent_mask),
+        inp_row_pos=inp_row_pos
     )
 
-
     return batch
+
 
 def pad_rows(rows, lengths):
     padded_rows = torch.zeros(len(rows), max(lengths)).long()
@@ -1006,6 +1015,7 @@ def pad_rows(rows, lengths):
         end = lengths[i]
         padded_rows[i, :end] = torch.LongTensor(row[:end])
     return padded_rows
+
 
 def pad_nested_row(rows, lengths):
     max_abstract_length = max([l for ln in lengths for l in ln])
@@ -1026,6 +1036,7 @@ def pad_ents(ents, lengths):
             padded_ents[i, :end, ent_n] = torch.LongTensor(row[ent_n][:end])
     return padded_ents
 
+
 def pad_nested_ents(ents, lengths):
     abstract_lengths = []
     batch_size = len(ents)
@@ -1045,6 +1056,7 @@ def pad_nested_ents(ents, lengths):
                 padded_ents[i, j, ent_n, :end] = torch.LongTensor(batch_row[j][ent_n][:end])
     return padded_ents
 
+
 def pad_sent_lengths(sent_lens):
     """
     given sentence lengths, pad them so that the total batch length is equal
@@ -1053,8 +1065,9 @@ def pad_sent_lengths(sent_lens):
     max_len = max([len(sent) for sent in sent_lens])
     pad_lens = []
     for sent in sent_lens:
-        pad_lens.append(sent + [0]*(max_len - len(sent)))
+        pad_lens.append(sent + [0] * (max_len - len(sent)))
     return pad_lens
+
 
 def collate_geometric(data_list):
     r"""Collates a python list of data objects to the internal storage
@@ -1078,6 +1091,7 @@ def collate_geometric(data_list):
 
     return data, slices
 
+
 def generate_dictionary(config):
     """
     Before running an experiment, make sure that a dictionary
@@ -1095,13 +1109,13 @@ def generate_dictionary(config):
     datas = []
     logging.info("For training file")
     train_data, max_ents = ds.process_data(os.path.join(parent_dir, 'data', config.dataset.data_path),
-                    config.dataset.train_file, load_dictionary=False, preprocess=False)
+                                           config.dataset.train_file, load_dictionary=False, preprocess=False)
     datas.append(train_data)
     logging.info("For testing files")
     for test_file in config.dataset.test_files:
         logging.info("For file {}".format(test_file))
         test_data, max_e = ds.process_data(os.path.join(parent_dir, 'data', config.dataset.data_path),
-                        test_file, load_dictionary=False, preprocess=False)
+                                           test_file, load_dictionary=False, preprocess=False)
         datas.append(test_data)
         if max_e > max_ents:
             max_ents = max_e
@@ -1123,8 +1137,9 @@ def generate_dictionary(config):
         'dummy_entitiy': ds.dummy_entity,
         'entity_map': ds.entity_map
     }
-    json.dump(dictionary, open(dictionary_file,'w'))
+    json.dump(dictionary, open(dictionary_file, 'w'))
     logging.info("Saved dictionary at {}".format(dictionary_file))
+
 
 if __name__ == '__main__':
     # Generate a dictionary once and re-use it over again
@@ -1134,6 +1149,3 @@ if __name__ == '__main__':
     parent_dir = os.path.abspath(os.pardir).split('/codes')[0]
     config = get_config(config_id='gat_clean')
     generate_dictionary(config)
-
-
-
