@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from codes.net.base_net import Net
-from codes.net.net_registry import choose_encoder
+from codes.net.net_registry import choose_encoder_decoder
 
 
 class TextGraphInfoMax(Net):
@@ -18,8 +18,8 @@ class TextGraphInfoMax(Net):
         super(TextGraphInfoMax, self).__init__(model_config)
 
         self.model_config = model_config
-        self.graph_encoder = choose_encoder(model_config, model_config.infomax.graph_encoder)
-        self.text_encoder = choose_encoder(model_config, model_config.infomax.text_encoder)
+        self.graph_encoder = choose_encoder_decoder(model_config, model_config.infomax.graph_encoder)
+        self.text_encoder = choose_encoder_decoder(model_config, model_config.infomax.text_encoder)
         if model_config.encoder.bidirectional:
             self.discriminator = Discriminator(model_config.encoder.hidden_dim * 3)
         else:

@@ -24,7 +24,7 @@ def choose_model(config):
     return encoder_module(model_config), decoder_module(model_config)
 
 
-def choose_encoder(model_config, name):
+def choose_encoder_decoder(model_config, name):
     encoder_module = _import_module(name)
     return encoder_module(model_config)
 
