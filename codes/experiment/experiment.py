@@ -5,6 +5,7 @@ from addict import Dict
 import os
 import numpy as np
 
+from codes.net.distill_trainer import DistillTrainer
 from codes.net.infomax_trainer import InfoMaxTrainer
 from codes.utils.util import get_device_name
 from codes.net.net_registry import choose_model
@@ -143,6 +144,11 @@ def run_experiment(config, exp, resume=False):
     print(experiment.model)
     if config.model.name == 'infomax':
         experiment.trainer = InfoMaxTrainer(
+            config.model, experiment.model.encoder,
+            experiment.model.decoder,
+            max_entity_id=data_util.max_entity_id)
+    elif config.model.name == 'kd':
+        experiment.trainer = DistillTrainer(
             config.model, experiment.model.encoder,
             experiment.model.decoder,
             max_entity_id=data_util.max_entity_id)

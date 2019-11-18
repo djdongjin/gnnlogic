@@ -36,6 +36,10 @@ class DistillTrainer:
         self.encoder_teacher = choose_encoder_decoder(model_config, model_config.kd.encoder_teacher)
         self.decoder_teacher = choose_encoder_decoder(model_config, model_config.kd.decoder_teacher)
         self.load_graph_teacher(model_config.kd.gnn_model_prefix, model_config.kd.gnn_exp_id)
+        self.encoder_teacher.cuda()
+        self.decoder_teacher.cuda()
+        self.encoder_teacher.max_entity_id = max_entity_id
+        self.decoder_teacher.max_entity_id = max_entity_id
 
         self.T = model_config.kd.temperature
         self.alpha = model_config.kd.alpha
@@ -45,6 +49,7 @@ class DistillTrainer:
         if self.model_config.embedding.entity_embedding_policy in ['random','fixed']:
             # randomize the entity embeddings first time
             self.encoder_model.randomize_entity_embeddings(padding=True)
+            self.encoder_teacher.randomize_entity_embeddings(padding=False)
         else:
             print("Learning entity embeddings")
 
@@ -66,6 +71,7 @@ class DistillTrainer:
             checkpoint = torch.load(checkpoint_path)
             self.encoder_teacher.load_state_dict(checkpoint['model.encoder'])
             self.decoder_teacher.load_state_dict(checkpoint['model.decoder'])
+            print('load graph teacher from', checkpoint_name)
         else:
             raise FileNotFoundError("Checkpoint not found")
 
@@ -131,7 +137,7 @@ class DistillTrainer:
 
             step_batch = Dict()
             step_batch.query_rep = query_rep_teacher
-            logits_teacher, attn_teacher, hidden_rep_teacher = self.decoder_model(batch, step_batch)
+            logits_teacher, attn_teacher, hidden_rep_teacher = self.decoder_teacher(batch, step_batch)
             if logits_teacher.dim() > 2:
                 logits_teacher = logits_teacher.squeeze(1)
         # --------------- teacher network --------------
@@ -143,7 +149,6 @@ class DistillTrainer:
         batch.encoder_model = self.encoder_model
 
         query_rep = self.decoder_model.calculate_query(batch)  # query representation or question representation
-
         # batch.outp should be B x 1
         step_batch = Dict()
         step_batch.query_rep = query_rep
@@ -186,20 +191,3 @@ class DistillTrainer:
     def expand_hidden(self, hidden_rep, max_abs=5):
         return hidden_rep.unsqueeze(2).expand(-1, -1, max_abs, -1).contiguous()\
             .view(hidden_rep.size(0), -1, hidden_rep.size(-1))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
