@@ -1,3 +1,5 @@
+import random
+
 from comet_ml import Experiment, ExistingExperiment
 from codes.experiment.experiment import run_experiment
 from codes.utils.config import get_config
@@ -71,6 +73,7 @@ if __name__ == '__main__':
     print(config_id)
     if len(exp_id) == 0:
         config = get_config(config_id=config_id)
+        config.general.seed = random.randint(0, 10000)
         log_base = config['general']['base_path']
         logging.basicConfig(
             level=logging.INFO,
