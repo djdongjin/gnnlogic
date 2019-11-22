@@ -73,7 +73,6 @@ if __name__ == '__main__':
     print(config_id)
     if len(exp_id) == 0:
         config = get_config(config_id=config_id)
-        config.general.seed = random.randint(0, 10000)
         log_base = config['general']['base_path']
         logging.basicConfig(
             level=logging.INFO,

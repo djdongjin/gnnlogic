@@ -276,6 +276,7 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
         trainer.eval()
 
     aggregated_batch_loss = 0
+    aggregated_batch_loss_kd = 0
     num_examples = 0
 
     true_inp = []
@@ -325,6 +326,9 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
                 optimizer.step()
         aggregated_batch_loss += (batch_loss * batch.batch_size)
 
+        if experiment.config.model.name == 'kd':
+            aggregated_batch_loss_kd += (batch.distillation_loss * batch.batch_size)
+
         num_examples += batch.batch_size
         log_batch_losses.append(batch_loss)
         step = (experiment.epoch_index-1)*batch_size + batch_idx
@@ -345,6 +349,7 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
             del batch_neg
 
     loss = aggregated_batch_loss / num_examples
+    loss_kd = aggregated_batch_loss_kd / num_examples
     epoch_rel = np.mean(epoch_rel)
     base_file = filename.split('/')[-1]
     # if mode == 'val':
@@ -356,6 +361,7 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
         loss, epoch_rel))
 
     experiment.comet_ml.log_metric("{}_loss".format(base_file), loss, step=experiment.epoch_index)
+    experiment.comet_ml.log_metric("{}_kl_loss".format(base_file), loss_kd, step=experiment.epoch_index)
     experiment.comet_ml.log_metric("{}_accuracy".format(base_file), epoch_rel, step=experiment.epoch_index)
 
     if mode == 'test' and experiment.config.log.predictions:

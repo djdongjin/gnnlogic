@@ -164,7 +164,7 @@ class DistillTrainer:
         soft_log_probs = F.log_softmax(logits / self.T, dim=1)
         soft_targets = F.softmax(logits_teacher / self.T, dim=1)
         distillation_loss = F.kl_div(soft_log_probs, soft_targets.detach(), size_average=False) * (self.T**2) / soft_targets.shape[0]
-
+        batch.distillation_loss = distillation_loss.item()
         # The loss passed to the callback is the student's loss vs. the true labels, so we can use it directly, no
         # need to calculate again
         overall_loss = self.alpha * loss + self.beta * distillation_loss
