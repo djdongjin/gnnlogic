@@ -1,11 +1,12 @@
 from time import time
+import line_profiler
 
 import torch
 from addict import Dict
 import os
 import numpy as np
 
-from codes.net.distill_trainer import DistillTrainer
+from codes.net.distill_trainer_dual import DistillTrainer
 from codes.net.infomax_trainer import InfoMaxTrainer
 from codes.utils.util import get_device_name
 from codes.net.net_registry import choose_model
@@ -142,12 +143,7 @@ def run_experiment(config, exp, resume=False):
     experiment.model.encoder = experiment.model.encoder.to(device)
     experiment.model.decoder = experiment.model.decoder.to(device)
     print(experiment.model)
-    if config.model.name == 'infomax':
-        experiment.trainer = InfoMaxTrainer(
-            config.model, experiment.model.encoder,
-            experiment.model.decoder,
-            max_entity_id=data_util.max_entity_id)
-    elif config.model.name == 'kd':
+    if config.model.name.startswith('dual'):
         experiment.trainer = DistillTrainer(
             config.model, experiment.model.encoder,
             experiment.model.decoder,
@@ -327,7 +323,7 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
         aggregated_batch_loss += (batch_loss * batch.batch_size)
 
         if experiment.config.model.name == 'kd':
-            aggregated_batch_loss_kd += (batch.distillation_loss * batch.batch_size)
+            aggregated_batch_loss_kd += (batch.kd_loss * batch.batch_size)
 
         num_examples += batch.batch_size
         log_batch_losses.append(batch_loss)

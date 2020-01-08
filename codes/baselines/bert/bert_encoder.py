@@ -8,7 +8,7 @@ import torch.nn as nn
 from codes.net.base_net import Net
 import pdb
 import numpy as np
-from pytorch_pretrained_bert import BertModel
+from transformers import BertModel
 from codes.baselines.lstm.basic import SimpleEncoder
 
 

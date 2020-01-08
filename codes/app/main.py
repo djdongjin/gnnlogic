@@ -78,7 +78,7 @@ if __name__ == '__main__':
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler("{0}/{1}.log".format(log_base, config_id)),
+                logging.FileHandler(os.path.join(log_base, 'logs', "{0}.log".format(config_id))),
                 logging.StreamHandler()
             ]
         )

@@ -1,9 +1,10 @@
 *.DS_Store*
-
+*/*.lprof
 .idea/
 data/
 *.csv
 **/__pycache__/
+*/*.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

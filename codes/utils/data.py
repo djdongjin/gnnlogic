@@ -21,7 +21,7 @@ import random
 from itertools import repeat, product
 from typing import List
 from codes.utils.bert_utils import BertLocalCache
-from pytorch_pretrained_bert.tokenization import BertTokenizer
+from transformers import BertTokenizer
 from tqdm import tqdm
 import pdb
 import logging
@@ -689,6 +689,7 @@ class DataUtility():
             slices = [p for n in num_nodes for p in n]
             max_node = max(slices)
             # add extra node to all graphs in order to have padding
+            # TODO: check geometric data
             geo_data = [GeometricData(x=torch.arange(max_node).unsqueeze(1), edge_index=gd['edge_index'],
                                       edge_attr=gd['edge_attr'], y=gd['y']) for gd in geo_data]
             geo_batch = GeometricBatch.from_data_list(geo_data)
