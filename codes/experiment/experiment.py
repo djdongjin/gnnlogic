@@ -130,7 +130,8 @@ def run_experiment(config, exp, resume=False):
 
     experiment.data_util = data_util
     experiment.dataloaders.train = data_util.get_dataloader(mode='train')
-    if experiment.config.model.infomax.negative_batch:
+    # TODO: add negative sampling batch
+    if experiment.config.model.dual.neg_sample_size and experiment.config.model.dual.neg_sample_size > 0:
         experiment.dataloaders.train_negative = data_util.get_dataloader(mode='train', shuffle=True)
     experiment.dataloaders.val = data_util.get_dataloader(mode='val')
     experiment.dataloaders.test = {}
@@ -174,10 +175,27 @@ def run_experiment(config, exp, resume=False):
         experiment.iteration_index.test = 0
     experiment.comet_ml = exp
 
+    if config.model.name.startswith('dual'):
+        # check the loaded pretrained Graph encoder
+        check_pretrained_gnn_acc(experiment, prefix='before_train')
+
     if config.general.mode == 'train':
         _run_epochs(experiment)
     else:
         _run_one_epoch_test(experiment)
+
+    if config.model.name.startswith('dual'):
+        # check the loaded pretrained Graph encoder
+        check_pretrained_gnn_acc(experiment, prefix='after_train')
+
+
+def check_pretrained_gnn_acc(experiment, prefix):
+    experiment.trainer.checking_teacher_acc = True
+    experiment.config.log.logger.info("------------------------")
+    experiment.config.log.logger.info("check pretrained gnn acc")
+    experiment.config.log.logger.info("------------------------")
+    _run_one_epoch_test(experiment, prefix=prefix)
+    experiment.trainer.checking_teacher_acc = False
 
 
 def _run_epochs(experiment):
@@ -233,9 +251,8 @@ def _run_one_epoch_train_val(experiment):
     return train_loss, train_acc, val_loss, val_acc
 
 
-def _run_one_epoch_test(experiment):
+def _run_one_epoch_test(experiment, prefix=""):
     test_accs = []
-    print(experiment.dataloaders.test)
     if len(experiment.dataloaders.test) > 0:
         with experiment.comet_ml.test():
             for test_file, dlo in experiment.dataloaders.test.items():
@@ -246,13 +263,15 @@ def _run_one_epoch_test(experiment):
                                         filename=test_file)
                 epoch = experiment.epoch_index
                 # last epoch
+                if prefix != "":
+                    prefix += '_'
                 if epoch == (experiment.config.model.num_epochs + 1):
-                    experiment.comet_ml.log_metric("test_acc", acc, step=test_rel)
+                    experiment.comet_ml.log_metric(prefix + "test_acc", acc, step=test_rel)
                 if experiment.config.log.test_each_epoch:
-                    experiment.comet_ml.log_metric("test_acc_{}".format(test_fl_name), acc, step=epoch)
+                    experiment.comet_ml.log_metric(prefix + "test_acc_{}".format(test_fl_name), acc, step=epoch)
                 test_accs.append((test_fl_name, acc))
     experiment.config.log.logger.info("------------------------")
-    experiment.config.log.logger.info("togrep_final ; {} ; Epoch : {} ; Data : {} ; File : {} ; Test accuracies : {} ; Mean test accuracy : {}".format(
+    experiment.config.log.logger.info(prefix + "togrep_final ; {} ; Epoch : {} ; Data : {} ; File : {} ; Test accuracies : {} ; Mean test accuracy : {}".format(
         experiment.config.general.id, experiment.epoch_index, experiment.config.dataset.data_path, '',
         ' ,'.join(['{}:{}'.format(t[0],str(t[1])) for t in test_accs]),
         np.mean([t[1] for t in test_accs])))

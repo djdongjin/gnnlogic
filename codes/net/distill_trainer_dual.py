@@ -42,7 +42,8 @@ class DistillTrainer:
         self.encoder_teacher.max_entity_id = max_entity_id
         self.decoder_teacher.max_entity_id = max_entity_id
 
-        if model_config.dual.load_pretrained:
+        self.checking_teacher_acc = False
+        if model_config.dual.load_pretrained_teacher:
             self.load_teacher(model_config.dual.teacher_model_prefix, model_config.dual.teacher_exp_id)
 
         # initialize embeddings
@@ -68,7 +69,7 @@ class DistillTrainer:
         self.gamma = model_config.dual.gamma
 
         self.kd_loss_criteria = KDLoss(self.T) if self.beta > 0 else None
-        self.nce_loss_criteria = NCELoss() if self.gamma > 0 else None
+        self.contrastive_loss_criteria = ContrastiveLoss() if self.gamma > 0 else None
 
     def match_ent_emb(self):
         """
@@ -95,6 +96,8 @@ class DistillTrainer:
         model_params_decoder = self.decoder_student.get_model_params()
         model_params = model_params_encoder + model_params_decoder
 
+        model_params_teacher = self.encoder_teacher.get_model_params() + self.decoder_teacher.get_model_params()
+
         if model_params:
             if self.model_config.optimiser.name == "adam":
                 optimizers.append(optim.Adam(model_params,
@@ -104,6 +107,18 @@ class DistillTrainer:
             elif self.model_config.optimiser.name == 'sgd':
                 optimizers.append(optim.SGD(model_params, lr=self.model_config.optimiser.learning_rate,
                                             weight_decay=self.model_config.optimiser.l2_penalty))
+
+        if model_params_teacher and self.model_config.dual.fine_tune_teacher:
+            print('Teacher is being fine tuned.')
+            if self.model_config.optimiser.name == "adam":
+                optimizers.append(optim.Adam(model_params_teacher,
+                                             lr=self.model_config.optimiser.learning_rate,
+                                             weight_decay=self.model_config.optimiser.l2_penalty
+                                             ))
+            elif self.model_config.optimiser.name == 'sgd':
+                optimizers.append(optim.SGD(model_params_teacher, lr=self.model_config.optimiser.learning_rate,
+                                            weight_decay=self.model_config.optimiser.l2_penalty))
+
         if optimizers:
             if self.model_config.optimiser.scheduler_type == "exp":
                 schedulers = list(map(lambda optimizer: optim.lr_scheduler.ExponentialLR(
@@ -167,25 +182,28 @@ class DistillTrainer:
         # --------------- student network --------------
 
         # ----------------- loss -----------------------
-        # adapted according to https://github.com/NervanaSystems/distiller
         loss = self.criteria(logits_student, batch.target.squeeze(1))
 
         if self.kd_loss_criteria:
             kd_loss = self.kd_loss_criteria(logits_student, logits_teacher)
             batch.kd_loss = kd_loss.item()
         else:
-            kd_loss = 0.
+            batch.kd_loss = 0.
 
-        # TODO: add nce loss calculation
-        if self.nce_loss_criteria:
-            nce_loss = self.nce_loss_criteria()
-            batch.nce_loss = nce_loss.item()
+        # TODO: add contrastive loss calculation
+        if self.contrastive_loss_criteria:
+            contrastive_loss = self.contrastive_loss_criteria()
+            batch.contrastive_loss = contrastive_loss.item()
         else:
-            nce_loss = 0.
+            batch.contrastive_loss = 0.
 
-        overall_loss = self.alpha * loss + self.beta * kd_loss + self.gamma * nce_loss
+        overall_loss = self.alpha * loss + self.beta * batch.kd_loss + self.gamma * batch.contrastive_loss
 
-        topv, topi = logits_student.data.topk(1)
+        if self.checking_teacher_acc:
+            logits = logits_teacher
+        else:
+            logits = logits_student
+        topv, topi = logits.data.topk(1)
         next_words = topi.squeeze(1)
         decoder_outp = next_words
         # confidence of classes
@@ -239,9 +257,10 @@ class KDLoss(nn.Module):
         return distillation_loss
 
 
-class NCELoss(nn.Module):
+class ContrastiveLoss(nn.Module):
 
     def __init__(self):
+        super(ContrastiveLoss, self).__init__()
         pass
 
     def forward(self):
