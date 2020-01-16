@@ -18,7 +18,7 @@ class EdgeGatConv(MessagePassing):
                  negative_slope=0.2,
                  dropout=0.,
                  bias=True):
-        super(EdgeGatConv, self).__init__()
+        super(EdgeGatConv, self).__init__(aggr='add')
 
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -59,12 +59,12 @@ class EdgeGatConv(MessagePassing):
         # basically it performs this `edge_index = torch.cat([edge_index, loop], dim=1)`
         # here, we should also append a set of [node x zeros] in the edge_attr
         # maybe they add self loops in order to propagate the messages coming from the node itself?
-        edge_index = add_self_loops(edge_index, num_nodes=x.size(0))
+        edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
         self_loop_edges = torch.zeros(x.size(0), edge_attr.size(1)).to(edge_index.device)
         edge_attr = torch.cat([edge_attr, self_loop_edges], dim=0) # (500, 10)
 
         x = torch.mm(x, self.weight).view(-1, self.heads, self.out_channels)
-        return self.propagate('add', edge_index, x=x, num_nodes=x.size(0),edge_attr=edge_attr)
+        return self.propagate(edge_index=edge_index, x=x, edge_attr=edge_attr, num_nodes=x.size(0))
 
     def message(self, x_i, x_j, edge_index, num_nodes, edge_attr):
         # x_i/x_j = E x out_channel, one message for each incoming edge
@@ -142,10 +142,23 @@ class GatEncoder(Net):
         self.att2 = EdgeGatConv(self.model_config.embedding.dim, self.model_config.embedding.dim,
                                 self.model_config.graph.edge_dim)
 
-    def forward(self, batch):
+    def forward(self, batch, corrupt=False, corrupt_method='edge'):
         data = batch.geo_batch
         x = self.embedding(data.x).squeeze(1) # N x node_dim
         edge_attr = self.edge_embedding(data.edge_attr).squeeze(1) # E x edge_dim
+        if corrupt:
+            if corrupt_method == 'edge' or corrupt_method == 'edge-in-batch':
+                perm = torch.randperm(edge_attr.shape[0])
+                edge_attr = edge_attr[perm]
+            elif corrupt_method == 'edge-global':
+                total_edge_type = self.edge_embedding.weight.shape[0]
+                sampled_edge_type = torch.randint_like(data.edge_attr, low=0, high=total_edge_type)
+                edge_attr = self.edge_embedding(sampled_edge_type).squeeze(1)
+            elif corrupt_method == 'node':
+                perm = torch.randperm(x.shape[0])
+                x = x[perm]
+            else:
+                raise NotImplementedError('{} is not implemented as a corrupt method'.format(corrupt_method))
         for nr in range(self.model_config.graph.num_message_rounds):
             x = F.dropout(x, p=0.6, training=self.training)
             x = F.elu(self.att1(x, data.edge_index, edge_attr))
@@ -190,5 +203,7 @@ class GatDecoder(Net):
         node_avg = torch.mean(batch.encoder_outputs,1) # B x dim
         # concat the query
         node_cat = torch.cat((node_avg, query), -1) # B x (dim + dim x num_q)
+
+        batch.decoder_feat = node_avg
 
         return self.decoder2vocab(node_cat), None, None # B x num_vocab

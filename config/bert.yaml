@@ -69,7 +69,6 @@ model:
     bidirectional: false
     dropout: 0
     pooling: maxpool # can be attention or maxpool
-    tmp_name: codes.models.gnn.encoder.GraphEncoder
     invalidate_embeddings: True
   decoder:
     name: codes.baselines.lstm.basic.SimpleDecoder
@@ -78,7 +77,6 @@ model:
     bidirectional: false
     dropout: 0
     query_ents: 2
-    tmp_name: codes.models.gnn.decoder.GraphLSTMDecoder
     pool_type: mean # can be either attn, max, mean or last
   beam:
     beam_size: 3

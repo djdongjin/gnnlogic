@@ -120,7 +120,8 @@ class MACNetworkDecoder(Net):
     def forward(self, batch, step_batch):
         query_rep = batch.query_rep
         enc_outputs = batch.encoder_outputs
-        out = self.output_unit(torch.cat([query_rep, enc_outputs], -1))
+        batch.decoder_feat = torch.cat([enc_outputs, query_rep], -1)
+        out = self.output_unit(batch.decoder_feat)
         return out, None, None
 
     def init_hidden(self, encoder_outputs, batch_size):

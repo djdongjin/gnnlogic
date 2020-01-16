@@ -68,7 +68,6 @@ model:
     bidirectional: true
     dropout: 0
     pooling: maxpool # can be attention or maxpool
-    tmp_name: codes.models.gnn.encoder.GraphEncoder
   decoder:
     name: codes.baselines.MAC.mac_nets.MACNetworkDecoder
     hidden_dim: 200
@@ -76,8 +75,6 @@ model:
     bidirectional: false
     dropout: 0
     query_ents: 2
-    tmp_name: codes.models.gnn.decoder.GraphLSTMDecoder
-    invalidate_embeddings: False
     pool_type: last # can be either attn, max, mean or last
   beam:
     beam_size: 3

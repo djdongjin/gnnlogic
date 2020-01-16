@@ -88,7 +88,7 @@ if __name__ == '__main__':
                         workspace=config.log.comet.workspace,
                         project_name=config.log.comet.project_name,
                         disabled=config.log.comet.disabled,
-                        auto_output_logging=None,
+                        # auto_output_logging=None,
                         log_code=False)
         name = 'exp_{}'.format(config_id)
         config.general.exp_name = name

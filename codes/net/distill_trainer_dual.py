@@ -69,7 +69,20 @@ class DistillTrainer:
         self.gamma = model_config.dual.gamma
 
         self.kd_loss_criteria = KDLoss(self.T) if self.beta > 0 else None
-        self.contrastive_loss_criteria = ContrastiveLoss() if self.gamma > 0 else None
+
+        if self.gamma > 0 and model_config.dual.corrupt:
+            feat_dim_teacher = model_config.embedding.dim * 3   # graph_emb + node_emb * 2
+            if model_config.embedding.emb_type == 'one-hot':
+                feat_dim_teacher = model_config.unique_nodes * 3
+            feat_dim_student = model_config.embedding.dim * 3
+            if model_config.encoder.bidirectional:
+                feat_dim_student *= 2
+            self.contrastive_loss_criteria = ContrastiveLoss(feat_dim_student, feat_dim_teacher)
+            if torch.cuda.is_available():
+                self.contrastive_loss_criteria.cuda()
+        else:
+            self.contrastive_loss_criteria = None
+
 
     def match_ent_emb(self):
         """
@@ -162,8 +175,26 @@ class DistillTrainer:
             step_batch = Dict()
             step_batch.query_rep = query_rep_teacher
             logits_teacher, attn_teacher, hidden_rep_teacher = self.decoder_teacher(batch, step_batch)
+            outp_rep = batch.decoder_feat   # essentially concat of two ent emb and pooled graph|text emb
+            feat_teacher = torch.cat([outp_rep, query_rep_teacher], dim=1)
             if logits_teacher.dim() > 2:
                 logits_teacher = logits_teacher.squeeze(1)
+
+            # generate corrupted feat rep
+            if self.model_config.dual.corrupt:
+                encoder_outp_teacher_neg, encoder_hid_teacher_neg = self.encoder_teacher(batch, corrupt=True,
+                                                                 corrupt_method=self.model_config.dual.corrupt_method)
+                batch.encoder_outputs = encoder_outp_teacher_neg
+                batch.encoder_hidden = encoder_hid_teacher_neg
+                batch.encoder_model = self.encoder_teacher
+
+                query_rep_teacher_neg = self.decoder_teacher.calculate_query(batch)
+
+                step_batch = Dict()
+                step_batch.query_rep = query_rep_teacher_neg
+                logits_teacher_neg, attn_teacher_neg, hidden_rep_teacher_neg = self.decoder_teacher(batch, step_batch)
+                outp_rep_neg = batch.decoder_feat  # essentially concat of two ent emb and pooled graph|text emb
+                feat_teacher_neg = torch.cat([outp_rep_neg, query_rep_teacher_neg], dim=1)
         # --------------- teacher network --------------
         # --------------- student network --------------
         encoder_outputs_student, encoder_hidden_student = self.encoder_student(batch)
@@ -177,28 +208,30 @@ class DistillTrainer:
         step_batch = Dict()
         step_batch.query_rep = query_rep
         logits_student, attn_student, hidden_rep_student = self.decoder_student(batch, step_batch)
+        feat_student = batch.decoder_feat
         if logits_student.dim() > 2:
             logits_student = logits_student.squeeze(1)
         # --------------- student network --------------
 
         # ----------------- loss -----------------------
         loss = self.criteria(logits_student, batch.target.squeeze(1))
+        batch.supervised_loss = loss.item()
 
         if self.kd_loss_criteria:
             kd_loss = self.kd_loss_criteria(logits_student, logits_teacher)
             batch.kd_loss = kd_loss.item()
         else:
-            batch.kd_loss = 0.
+            kd_loss = 0.
 
         # TODO: add contrastive loss calculation
         if self.contrastive_loss_criteria:
-            contrastive_loss = self.contrastive_loss_criteria()
+            contrastive_loss, contrastive_acc = self.contrastive_loss_criteria(feat_student, feat_teacher, feat_teacher_neg)
             batch.contrastive_loss = contrastive_loss.item()
+            batch.contrastive_acc = contrastive_acc.item()
         else:
-            batch.contrastive_loss = 0.
+            contrastive_loss = 0.
 
-        overall_loss = self.alpha * loss + self.beta * batch.kd_loss + self.gamma * batch.contrastive_loss
-
+        overall_loss = self.alpha * loss + self.beta * kd_loss + self.gamma * contrastive_loss
         if self.checking_teacher_acc:
             logits = logits_teacher
         else:
@@ -246,42 +279,67 @@ class KDLoss(nn.Module):
 
     def __init__(self, T):
         super(KDLoss, self).__init__()
-        self.temp = T
+        # self.temp = T
+        self.T = T
 
-    def forward(self, logits_student, logits_teacher):
-        soft_log_probs = F.log_softmax(logits_student / self.temp, dim=1)
-        soft_targets = F.softmax(logits_teacher / self.temp, dim=1)
-        distillation_loss = F.kl_div(soft_log_probs, soft_targets.detach(), size_average=False) * (self.temp ** 2) / \
-                            soft_targets.shape[0]
+    # def forward(self, logits_student, logits_teacher):
+    #     soft_log_probs = F.log_softmax(logits_student / self.temp, dim=1)
+    #     soft_targets = F.softmax(logits_teacher / self.temp, dim=1)
+    #     distillation_loss = F.kl_div(soft_log_probs, soft_targets.detach(), size_average=False) * (self.temp ** 2) / \
+    #                         soft_targets.shape[0]
+    #
+    #     return distillation_loss
 
-        return distillation_loss
+    def forward(self, y_s, y_t):
+        p_s = F.log_softmax(y_s/self.T, dim=1)
+        p_t = F.softmax(y_t/self.T, dim=1)
+        loss = F.kl_div(p_s, p_t, size_average=False) * (self.T**2) / y_s.shape[0]
+        return loss
 
 
 class ContrastiveLoss(nn.Module):
 
-    def __init__(self):
+    def __init__(self, n_inp_s, n_inp_t):
         super(ContrastiveLoss, self).__init__()
-        pass
+        self.discriminator = Discriminator(n_inp_s, n_inp_t, min(n_inp_s, n_inp_t))
+        self.loss = nn.BCELoss()
 
-    def forward(self):
-        return None
+    def forward(self, feat_s, feat_t_pos, feat_t_neg):
+        pos = self.discriminator(feat_s, feat_t_pos)
+        neg = self.discriminator(feat_s, feat_t_neg)
+
+        acc = torch.sum((pos >= 0.5) == torch.ones_like(pos)) / pos.size(0) + \
+              torch.sum((neg < 0.5) == torch.ones_like(pos)) / neg.size(0)
+
+        return self.loss(pos, torch.ones_like(pos)) + self.loss(neg, torch.ones_like(neg)), acc
 
 
 class Discriminator(nn.Module):
-    def __init__(self, n_hidden):
+    def __init__(self, n_inp_student, n_inp_teacher, n_hid):
         super(Discriminator, self).__init__()
-        self.weight = nn.Parameter(torch.tensor(n_hidden, n_hidden), requires_grad=True)
-        self.reset_parameters()
+        self.linear_s = nn.Linear(n_inp_student, n_hid)
+        self.linear_t = nn.Linear(n_inp_teacher, n_hid)
+        self.linear1 = nn.Linear(n_hid * 2, n_hid)
+        self.linear2 = nn.Linear(n_hid, 1)
+        # self.reset_parameters()
 
-    def uniform(self, size, tensor):
+    def uniform(self, size, param):
         bound = 1.0 / math.sqrt(size)
-        if tensor is not None:
-            tensor.data.uniform_(-bound, bound)
+        if param is not None:
+            nn.init.uniform_(param, -bound, bound)
 
     def reset_parameters(self):
-        size = self.weight.size(0)
-        self.uniform(size, self.weight)
+        for nm, param in self.named_parameters():
+            if param.requires_grad:
+                if 'weight' in param:
+                    size = param.size(0)
+                    self.uniform(size, param)
+                else:
+                    nn.init.constant_(param, 0)
 
-    def forward(self, features, summary):
-        features = torch.matmul(features, torch.matmul(self.weight, summary))
-        return features
+    def forward(self, feat_student, feat_teacher):
+        f_s, f_t = self.linear_s(feat_student), self.linear_t(feat_teacher)
+        feat = torch.cat([f_s, f_t], dim=-1)
+        return self.linear2(self.linear1(feat).relu()).sigmoid()
+        # features = torch.matmul(features, torch.matmul(self.weight, summary))
+        # return features

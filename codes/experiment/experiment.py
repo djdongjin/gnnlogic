@@ -129,7 +129,7 @@ def run_experiment(config, exp, resume=False):
     #     bert_cache.save_cache(data_base_path)
 
     experiment.data_util = data_util
-    experiment.dataloaders.train = data_util.get_dataloader(mode='train')
+    experiment.dataloaders.train = data_util.get_dataloader(mode='train', shuffle=True)
     # TODO: add negative sampling batch
     if experiment.config.model.dual.neg_sample_size and experiment.config.model.dual.neg_sample_size > 0:
         experiment.dataloaders.train_negative = data_util.get_dataloader(mode='train', shuffle=True)
@@ -253,6 +253,8 @@ def _run_one_epoch_train_val(experiment):
 
 def _run_one_epoch_test(experiment, prefix=""):
     test_accs = []
+    if prefix != "":
+        prefix += '_'
     if len(experiment.dataloaders.test) > 0:
         with experiment.comet_ml.test():
             for test_file, dlo in experiment.dataloaders.test.items():
@@ -263,8 +265,6 @@ def _run_one_epoch_test(experiment, prefix=""):
                                         filename=test_file)
                 epoch = experiment.epoch_index
                 # last epoch
-                if prefix != "":
-                    prefix += '_'
                 if epoch == (experiment.config.model.num_epochs + 1):
                     experiment.comet_ml.log_metric(prefix + "test_acc", acc, step=test_rel)
                 if experiment.config.log.test_each_epoch:
@@ -333,6 +333,17 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
         batch_loss = loss.item()
         if (should_train):
             loss.backward()
+            # print(loss)
+            # for nm, pa in experiment.model.encoder.named_parameters():
+            #     with torch.no_grad():
+            #         print(pa.requires_grad, nm, pa.shape)
+            #         if pa.requires_grad and pa.grad is not None:
+            #             print(pa.grad.sum().item())
+            # for nm, pa in experiment.model.decoder.named_parameters():
+            #     with torch.no_grad():
+            #         print(pa.requires_grad, nm, pa.shape)
+            #         if pa.requires_grad and pa.grad is not None:
+            #             print(pa.grad.sum().item())
             clip = experiment.config.model.optimiser.clip
             if clip > 0:
                 torch.nn.utils.clip_grad_norm_(experiment.model.encoder.parameters(), clip)
@@ -341,13 +352,18 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
                 optimizer.step()
         aggregated_batch_loss += (batch_loss * batch.batch_size)
 
-        if experiment.config.model.name == 'kd':
-            aggregated_batch_loss_kd += (batch.kd_loss * batch.batch_size)
-
         num_examples += batch.batch_size
         log_batch_losses.append(batch_loss)
         step = (experiment.epoch_index-1)*batch_size + batch_idx
-        experiment.comet_ml.log_metric("loss", batch_loss, step=step)
+        experiment.comet_ml.log_metric("batch_loss", batch_loss, step=step)
+        if experiment.config.model.name.startswith('dual'):
+            if 'contrastive_loss' in batch.__dict__:
+                experiment.comet_ml.log_metric("contrastive_loss", batch.contrastive_loss, step=step)
+            if 'contrastive_acc' in batch.__dict__:
+                experiment.comet_ml.log_metric("contrastive_acc", batch.contrastive_acc, step=step)
+            if 'kd_loss' in batch.__dict__:
+                experiment.comet_ml.log_metric("kd_loss", batch.kd_loss, step=step)
+        # aggregated_batch_loss_kd += (batch.kd_loss * batch.batch_size)
 
         batch = experiment.generator.process_batch(batch, outputs, beam=False)
         true_inp.extend(batch.true_inp)

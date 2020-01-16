@@ -234,5 +234,6 @@ class RelationNetworkDecoder(Net):
 
     def forward(self, batch, step_batch):
         out = self.fout(batch.encoder_outputs)
+        batch.decoder_feat = batch.encoder_outputs
         return out, None, None
 
