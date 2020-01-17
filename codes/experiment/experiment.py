@@ -233,6 +233,16 @@ def _run_epochs(experiment):
         experiment.config.log.logger.info("Best performing epoch id {}".format(best_epoch_index))
         # print("Test score corresponding to best performing epoch id {}".format(best_epoch_index))
         # print(', '.join(test_acc_per_epoch[best_epoch_index - 1]))
+        files, accs = zip(*test_accs)
+        acc_to_file = experiment.config.general.base_path
+        acc_to_file = os.path.join(acc_to_file, '{}.csv'.format(experiment.config.dataset.data_path))
+        if not os.path.exists(acc_to_file):
+            with open(acc_to_file, 'w') as writer:
+                line = ['config_id', 'exp_id'] + list(files)
+                writer.write(','.join(line) + '\n')
+        with open(acc_to_file, 'a') as writer:
+            line = [experiment.config.general.id, experiment.comet_ml.id] + list(map(str, accs))
+            writer.write(','.join(line) + '\n')
 
 
 def _run_one_epoch_train_val(experiment):
