@@ -7,7 +7,6 @@ import os
 import numpy as np
 
 from codes.net.distill_trainer_dual import DistillTrainer
-from codes.net.infomax_trainer import InfoMaxTrainer
 from codes.utils.util import get_device_name
 from codes.net.net_registry import choose_model
 from codes.net.trainer import Trainer
@@ -131,8 +130,6 @@ def run_experiment(config, exp, resume=False):
     experiment.data_util = data_util
     experiment.dataloaders.train = data_util.get_dataloader(mode='train', shuffle=True)
     # TODO: add negative sampling batch
-    if experiment.config.model.dual.neg_sample_size and experiment.config.model.dual.neg_sample_size > 0:
-        experiment.dataloaders.train_negative = data_util.get_dataloader(mode='train', shuffle=True)
     experiment.dataloaders.val = data_util.get_dataloader(mode='val')
     experiment.dataloaders.test = {}
     for test_file in sorted(config.dataset.test_files):
@@ -251,8 +248,7 @@ def _run_one_epoch_train_val(experiment):
         with experiment.comet_ml.train():
             train_loss, train_acc = _run_one_epoch(experiment.dataloaders.train, experiment,
                            mode="train",
-                           filename=experiment.config.dataset.train_file,
-                           neg_dataloader=experiment.dataloaders.train_negative)
+                           filename=experiment.config.dataset.train_file)
     if experiment.dataloaders.val:
         with experiment.comet_ml.validate():
             val_loss, val_acc = _run_one_epoch(experiment.dataloaders.val, experiment,
@@ -288,7 +284,7 @@ def _run_one_epoch_test(experiment, prefix=""):
     return test_accs
 
 
-def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=None):
+def _run_one_epoch(dataloader, experiment, mode, filename=''):
     trainer = experiment.trainer
     optimizers = experiment.optimizers
     should_train = False
@@ -314,31 +310,18 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
     log_batch_rel = []
     batch_size = len(dataloader)
 
-    double_batch = neg_dataloader is not None and len(neg_dataloader) > 0
-    if double_batch:
-        iter_obj = zip(dataloader, neg_dataloader)
-    else:
-        iter_obj = dataloader
-    for batch_idx, batch_pair in enumerate(iter_obj):
+    for batch_idx, batch in enumerate(dataloader):
         experiment.iteration_index[mode] += 1
 
-        if double_batch:
-            batch, batch_neg = batch_pair
-            batch_neg.to_device(experiment.device)
-        else:
-            batch, batch_neg = batch_pair, None
         batch.config = experiment.config
         # batch.process_adj_mat()
         batch.to_device(experiment.device)
 
-        if (should_train):
+        if should_train:
             for optimizer in optimizers:
                 optimizer.zero_grad()
 
-        if batch_neg:
-            outputs, loss, conf = trainer.batchLoss(batch, batch_neg=batch_neg)
-        else:
-            outputs, loss, conf = trainer.batchLoss(batch)
+        outputs, loss, conf = trainer.batchLoss(batch)
 
         batch_loss = loss.item()
         if (should_train):
@@ -386,8 +369,6 @@ def _run_one_epoch(dataloader, experiment, mode, filename='', neg_dataloader=Non
         epoch_rel.append(accuracy)
 
         del batch
-        if batch_neg:
-            del batch_neg
 
     loss = aggregated_batch_loss / num_examples
     loss_kd = aggregated_batch_loss_kd / num_examples
