@@ -13,7 +13,7 @@ from codes.net.batch import Batch
 import pdb
 
 from codes.net.net_registry import choose_encoder_decoder
-
+from codes.cortex_DIM.functions.gan_losses import get_positive_expectation, get_negative_expectation
 
 class DistillTrainer:
     def __init__(self, model_config, encoder_model, decoder_model,
@@ -71,13 +71,22 @@ class DistillTrainer:
         self.kd_loss_criteria = KDLoss(self.T) if self.beta > 0 else None
 
         if self.gamma > 0 and model_config.dual.corrupt:
-            feat_dim_teacher = model_config.embedding.dim * 3   # graph_emb + node_emb * 2
+            feat_dim_t = feat_dim_s = model_config.embedding.dim
             if model_config.embedding.emb_type == 'one-hot':
-                feat_dim_teacher = model_config.unique_nodes * 3
-            feat_dim_student = model_config.embedding.dim * 3
+                feat_dim_t = model_config.unique_nodes
+            if model_config.dual.use_query_rep:
+                feat_dim_t *= 3
+                feat_dim_s *= 3
             if model_config.encoder.bidirectional:
-                feat_dim_student *= 2
-            self.contrastive_loss_criteria = ContrastiveLoss(feat_dim_student, feat_dim_teacher)
+                feat_dim_s *= 2
+
+            if model_config.dual.batch_contrastive:
+                self.contrastive_loss_criteria = BatchContrastiveLoss(feat_dim_s, feat_dim_t, model_config.embedding.dim,
+                                                                      use_query_rep=model_config.dual.use_query_rep,
+                                                                      residual=True)
+            else:
+                self.contrastive_loss_criteria = ContrastiveLoss(feat_dim_s, feat_dim_t, model_config.embedding.dim,
+                                                                 use_query_rep=model_config.dual.use_query_rep)
             if torch.cuda.is_available():
                 self.contrastive_loss_criteria.cuda()
         else:
@@ -144,6 +153,27 @@ class DistillTrainer:
             return optimizers, schedulers
         return None
 
+    def encoder_decoder(self, encoder, decoder, batch, **kwargs):
+        if kwargs:
+            enc_outp, enc_hid = encoder(batch, kwargs)
+        else:
+            enc_outp, enc_hid = encoder(batch)
+        batch.encoder_outputs = enc_outp
+        batch.encoder_hidden = enc_hid
+        batch.encoder_model = encoder
+
+        query_rep = decoder.calculate_query(batch)
+
+        step_batch = Dict()
+        step_batch.query_rep = query_rep
+        logits, attn, hid_rep = decoder(batch, step_batch)
+        feat, query_rep = batch.decoder_feat, batch.query_rep
+
+        if logits.dim() > 2:
+            logits = logits.squeeze(1)
+
+        return logits, attn, hid_rep, feat, query_rep
+
     def batchLoss(self, batch: Batch, batch_neg: Batch=None, mode='train'):
         """
         Run the Loss
@@ -165,67 +195,41 @@ class DistillTrainer:
 
         # --------------- teacher network --------------
         with torch.no_grad():
-            encoder_outputs_teacher, encoder_hidden_teacher = self.encoder_teacher(batch)
-            batch.encoder_outputs = encoder_outputs_teacher
-            batch.encoder_hidden = encoder_hidden_teacher
-            batch.encoder_model = self.encoder_teacher
-
-            query_rep_teacher = self.decoder_teacher.calculate_query(batch)
-
-            step_batch = Dict()
-            step_batch.query_rep = query_rep_teacher
-            logits_teacher, attn_teacher, hidden_rep_teacher = self.decoder_teacher(batch, step_batch)
-            outp_rep = batch.decoder_feat   # essentially concat of two ent emb and pooled graph|text emb
-            feat_teacher = torch.cat([outp_rep, query_rep_teacher], dim=1)
-            if logits_teacher.dim() > 2:
-                logits_teacher = logits_teacher.squeeze(1)
-
+            logits_t, attn_t, hid_rep_t, feat_t, query_rep_t = self.encoder_decoder(self.encoder_teacher,
+                                                                                    self.decoder_teacher, batch)
             # generate corrupted feat rep
-            if self.model_config.dual.corrupt:
-                encoder_outp_teacher_neg, encoder_hid_teacher_neg = self.encoder_teacher(batch, corrupt=True,
-                                                                 corrupt_method=self.model_config.dual.corrupt_method)
-                batch.encoder_outputs = encoder_outp_teacher_neg
-                batch.encoder_hidden = encoder_hid_teacher_neg
-                batch.encoder_model = self.encoder_teacher
-
-                query_rep_teacher_neg = self.decoder_teacher.calculate_query(batch)
-
-                step_batch = Dict()
-                step_batch.query_rep = query_rep_teacher_neg
-                logits_teacher_neg, attn_teacher_neg, hidden_rep_teacher_neg = self.decoder_teacher(batch, step_batch)
-                outp_rep_neg = batch.decoder_feat  # essentially concat of two ent emb and pooled graph|text emb
-                feat_teacher_neg = torch.cat([outp_rep_neg, query_rep_teacher_neg], dim=1)
+            if self.model_config.dual.corrupt and not self.model_config.dual.batch_contrastive:
+                logits_t_neg, attn_t_neg, hid_rep_t_neg, feat_t_neg, query_rep_t_neg = self.encoder_decoder(
+                                                                    self.encoder_teacher,
+                                                                    self.decoder_teacher,
+                                                                    batch,
+                                                                    corrupt=True,
+                                                                    corrupt_method=self.model_config.dual.corrupt_method)
         # --------------- teacher network --------------
         # --------------- student network --------------
-        encoder_outputs_student, encoder_hidden_student = self.encoder_student(batch)
-
-        batch.encoder_outputs = encoder_outputs_student
-        batch.encoder_hidden = encoder_hidden_student
-        batch.encoder_model = self.encoder_student
-
-        query_rep = self.decoder_student.calculate_query(batch)  # query representation or question representation
-        # batch.outp should be B x 1
-        step_batch = Dict()
-        step_batch.query_rep = query_rep
-        logits_student, attn_student, hidden_rep_student = self.decoder_student(batch, step_batch)
-        feat_student = batch.decoder_feat
-        if logits_student.dim() > 2:
-            logits_student = logits_student.squeeze(1)
+        logits_s, attn_s, hid_rep_s, feat_s, query_rep_s = self.encoder_decoder(self.encoder_student,
+                                                                                self.decoder_student,
+                                                                                batch)
         # --------------- student network --------------
 
         # ----------------- loss -----------------------
-        loss = self.criteria(logits_student, batch.target.squeeze(1))
+        loss = self.criteria(logits_s, batch.target.squeeze(1))
         batch.supervised_loss = loss.item()
 
         if self.kd_loss_criteria:
-            kd_loss = self.kd_loss_criteria(logits_student, logits_teacher)
+            kd_loss = self.kd_loss_criteria(logits_s, logits_t)
             batch.kd_loss = kd_loss.item()
         else:
             kd_loss = 0.
 
-        # TODO: add contrastive loss calculation
         if self.contrastive_loss_criteria:
-            contrastive_loss, contrastive_acc = self.contrastive_loss_criteria(feat_student, feat_teacher, feat_teacher_neg)
+            if self.model_config.dual.batch_contrastive:
+                contrastive_loss, contrastive_acc = self.contrastive_loss_criteria(feat_s, query_rep_s,
+                                                                                   feat_t, query_rep_t)
+            else:
+                contrastive_loss, contrastive_acc = self.contrastive_loss_criteria(feat_s, query_rep_s,
+                                                                                   feat_t, query_rep_t,
+                                                                                   feat_t_neg, query_rep_t_neg)
             batch.contrastive_loss = contrastive_loss.item()
             batch.contrastive_acc = contrastive_acc.item()
         else:
@@ -233,14 +237,14 @@ class DistillTrainer:
 
         overall_loss = self.alpha * loss + self.beta * kd_loss + self.gamma * contrastive_loss
         if self.checking_teacher_acc:
-            logits = logits_teacher
+            logits = logits_t
         else:
-            logits = logits_student
+            logits = logits_s
         topv, topi = logits.data.topk(1)
         next_words = topi.squeeze(1)
         decoder_outp = next_words
         # confidence of classes
-        conf = torch.exp(F.log_softmax(logits_student, dim=1))
+        conf = torch.exp(F.log_softmax(logits, dim=1))
 
         return decoder_outp, overall_loss, conf
 
@@ -297,14 +301,71 @@ class KDLoss(nn.Module):
         return loss
 
 
+class MLP(nn.Module):
+    def __init__(self, inp_dim, outp_dim, residual=False):
+        super(MLP, self).__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(inp_dim, outp_dim),
+            nn.ReLU(),
+            nn.Linear(outp_dim, outp_dim),
+        )
+        if residual:
+            self.residual = nn.Linear(inp_dim, outp_dim)
+        else:
+            self.residual = None
+
+    def forward(self, x):
+        outp = self.mlp(x)
+        if self.residual:
+            outp = outp.relu() + self.residual(x)
+        return outp
+
+
+class BatchContrastiveLoss(nn.Module):
+
+    def __init__(self, dim_s, dim_t, dim, use_query_rep=False, residual=True):
+        super(BatchContrastiveLoss, self).__init__()
+        self.use_query_rep = use_query_rep
+        self.linear_s = MLP(dim_s, dim, residual)
+        self.linear_t = MLP(dim_t, dim, residual)
+
+    def forward(self, feat_s, query_rep_s, feat_t, query_rep_t):
+        if self.use_query_rep:
+            feat_s = torch.cat([feat_s, query_rep_s], dim=1)
+            feat_t = torch.cat([feat_t, query_rep_t], dim=1)
+
+        feat_s = self.linear_s(feat_s)
+        feat_t = self.linear_t(feat_t)
+
+        batch_size = feat_s.size(0)
+        pos_mask = torch.eye(batch_size, device=feat_s.device)
+        neg_mask = 1 - pos_mask
+
+        res = torch.mm(feat_s, feat_t.t())
+
+        measure = 'JSD'
+        E_pos = get_positive_expectation(res * pos_mask, measure, average=False)
+        E_pos = (E_pos * pos_mask).sum() / pos_mask.sum()
+        E_neg = get_negative_expectation(res * neg_mask, measure, average=False)
+        E_neg = (E_neg * neg_mask).sum() / neg_mask.sum()
+
+        acc = torch.zeros(size=(1,))     # TODO: how to check discriminator acc
+        return E_neg - E_pos, acc
+
+
 class ContrastiveLoss(nn.Module):
 
-    def __init__(self, n_inp_s, n_inp_t):
+    def __init__(self, dim_s, dim_t, dim, use_query_rep=False):
         super(ContrastiveLoss, self).__init__()
-        self.discriminator = Discriminator(n_inp_s, n_inp_t, min(n_inp_s, n_inp_t))
+        self.discriminator = Discriminator(dim_s, dim_t, dim)
         self.loss = nn.BCELoss()
+        self.user_query_rep = use_query_rep
 
-    def forward(self, feat_s, feat_t_pos, feat_t_neg):
+    def forward(self, feat_s, query_rep_s, feat_t_pos, query_rep_t_pos, feat_t_neg, query_rep_t_neg):
+        if self.user_query_rep:
+            feat_s = torch.cat([feat_s, query_rep_s], dim=1)
+            feat_t_pos = torch.cat([feat_t_pos, query_rep_t_pos], dim=1)
+            feat_t_neg = torch.cat([feat_t_neg, query_rep_t_neg], dim=1)
         pos = self.discriminator(feat_s, feat_t_pos)
         neg = self.discriminator(feat_s, feat_t_neg)
 
@@ -315,12 +376,12 @@ class ContrastiveLoss(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, n_inp_student, n_inp_teacher, n_hid):
+    def __init__(self, dim_s, dim_t, dim):
         super(Discriminator, self).__init__()
-        self.linear_s = nn.Linear(n_inp_student, n_hid)
-        self.linear_t = nn.Linear(n_inp_teacher, n_hid)
-        self.linear1 = nn.Linear(n_hid * 2, n_hid)
-        self.linear2 = nn.Linear(n_hid, 1)
+        self.linear_s = nn.Linear(dim_s, dim)
+        self.linear_t = nn.Linear(dim_t, dim)
+        self.linear1 = nn.Linear(dim * 2, dim)
+        self.linear2 = nn.Linear(dim, 1)
         # self.reset_parameters()
 
     def uniform(self, size, param):
@@ -338,8 +399,6 @@ class Discriminator(nn.Module):
                     nn.init.constant_(param, 0)
 
     def forward(self, feat_student, feat_teacher):
-        f_s, f_t = self.linear_s(feat_student), self.linear_t(feat_teacher)
+        f_s, f_t = self.linear_s(feat_student).relu(), self.linear_t(feat_teacher).relu()
         feat = torch.cat([f_s, f_t], dim=-1)
         return self.linear2(self.linear1(feat).relu()).sigmoid()
-        # features = torch.matmul(features, torch.matmul(self.weight, summary))
-        # return features

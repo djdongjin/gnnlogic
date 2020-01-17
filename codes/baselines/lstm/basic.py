@@ -154,6 +154,8 @@ class SimpleDecoder(Net):
                 emb = emb.squeeze(0)
                 assert emb.dim() == 2
             mlp_inp = torch.cat([emb, query_rep.squeeze(1)], -1)
+            batch.decoder_feat = emb
+            batch.query_rep = query_rep.squeeze(1)
         else:
             decoder_inp = step_batch.decoder_inp
             check_id_emb(decoder_inp, self.model_config.vocab_size)
@@ -161,7 +163,6 @@ class SimpleDecoder(Net):
             lstm_inp = torch.cat([decoder_inp, query_rep], -1)
             mlp_inp, hidden_rep = self.lstm(lstm_inp, hidden_rep)
 
-        batch.decoder_feat = mlp_inp
         outp = self.decoder2vocab(mlp_inp)
         return outp, None, hidden_rep
 

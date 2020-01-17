@@ -205,5 +205,6 @@ class GatDecoder(Net):
         node_cat = torch.cat((node_avg, query), -1) # B x (dim + dim x num_q)
 
         batch.decoder_feat = node_avg
+        batch.query_rep = query
 
         return self.decoder2vocab(node_cat), None, None # B x num_vocab
