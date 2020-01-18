@@ -92,7 +92,6 @@ class DistillTrainer:
         else:
             self.contrastive_loss_criteria = None
 
-
     def match_ent_emb(self):
         """
         modify entity embeddings in student such that student model has exactly the same
@@ -174,7 +173,7 @@ class DistillTrainer:
 
         return logits, attn, hid_rep, feat, query_rep
 
-    def batchLoss(self, batch: Batch, batch_neg: Batch=None, mode='train'):
+    def batchLoss(self, batch: Batch):
         """
         Run the Loss
         -> For classification experiments, use loss_type = `classify` in model.config
@@ -236,6 +235,7 @@ class DistillTrainer:
             contrastive_loss = 0.
 
         overall_loss = self.alpha * loss + self.beta * kd_loss + self.gamma * contrastive_loss
+        # print(overall_loss.item(), loss.item(), kd_loss.item(), contrastive_loss.item())
         if self.checking_teacher_acc:
             logits = logits_t
         else:
@@ -350,6 +350,7 @@ class BatchContrastiveLoss(nn.Module):
         E_neg = (E_neg * neg_mask).sum() / neg_mask.sum()
 
         acc = torch.zeros(size=(1,))     # TODO: how to check discriminator acc
+        # print(E_neg.item(), neg_mask.sum().item(), E_pos.item(), pos_mask.sum().item())
         return E_neg - E_pos, acc
 
 
