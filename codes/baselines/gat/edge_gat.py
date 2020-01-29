@@ -177,10 +177,10 @@ class GatEncoder(Net):
                                     self.model_config.graph.edge_dim)
         elif self.model_config.graph.conv_layer == 'gin':
             node_dim, edge_dim = self.model_config.embedding.dim, self.model_config.graph.edge_dim
-            self.att1 = EdgeGINConv(nn.Sequential(nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
+            self.layer1 = EdgeGINConv(nn.Sequential(nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
                                                   nn.ReLU(),
                                                   nn.Linear(node_dim + edge_dim, node_dim)))
-            self.att2 = EdgeGINConv(nn.Sequential(nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
+            self.layer2 = EdgeGINConv(nn.Sequential(nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
                                                   nn.ReLU(),
                                                   nn.Linear(node_dim + edge_dim, node_dim)))
         else:
@@ -205,9 +205,9 @@ class GatEncoder(Net):
                 raise NotImplementedError('{} is not implemented as a corrupt method'.format(corrupt_method))
         for nr in range(self.model_config.graph.num_message_rounds):
             x = F.dropout(x, p=0.6, training=self.training)
-            x = F.elu(self.att1(x, data.edge_index, edge_attr))
+            x = F.elu(self.layer1(x, data.edge_index, edge_attr))
             x = F.dropout(x, p=0.6, training=self.training)
-            x = self.att2(x, data.edge_index, edge_attr)
+            x = self.layer2(x, data.edge_index, edge_attr)
         # restore x into B x num_node x dim
         chunks = torch.split(x, batch.geo_slices, dim=0)
         chunks = [p.unsqueeze(0) for p in chunks]

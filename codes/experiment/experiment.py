@@ -217,7 +217,7 @@ def _run_epochs(experiment):
                 scheduler.step(validation_metrics_dict[metric_to_perform_early_stopping].current_value)
         if config.model.persist_per_epoch > 0 and experiment.epoch_index % config.model.persist_per_epoch == 0:
             experiment.model.save_model(epochs=experiment.epoch_index, optimizers=experiment.optimizers)
-        if experiment.config.log.test_each_epoch:
+        if experiment.config.log.test_each_epoch and experiment.epoch_index % 5 == 0:
             _run_one_epoch_test(experiment)
     else:
         test_accs = _run_one_epoch_test(experiment)

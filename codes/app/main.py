@@ -69,10 +69,12 @@ def init_signal_handler():
 
 if __name__ == '__main__':
     init_signal_handler()
-    config_id, exp_id = argument_parser()
+    config_id, exp_id, dataset = argument_parser()
     print(config_id)
     if len(exp_id) == 0:
         config = get_config(config_id=config_id)
+        if dataset:
+            config['dataset']['data_path'] = dataset
         log_base = config['general']['base_path']
         logging.basicConfig(
             level=logging.INFO,
@@ -98,6 +100,8 @@ if __name__ == '__main__':
     else:
         logging.info("Resuming old experiment with id {}".format(exp_id))
         config = get_config(config_id=config_id)
+        if dataset:
+            config['dataset']['data_path'] = dataset
         logger = logging.getLogger()
         ex = ExistingExperiment(
             api_key=config.log.comet.api_key,
