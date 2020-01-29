@@ -3,10 +3,43 @@ import torch
 from torch.nn import Parameter
 import torch.nn.functional as F
 from torch_geometric.nn.conv import MessagePassing
-from torch_geometric.utils import add_self_loops, softmax, scatter_
+from torch_geometric.utils import add_self_loops, remove_self_loops, softmax, scatter_
 from codes.baselines.gat.inits import *
 from codes.net.base_net import Net
+import torch.nn as nn
 
+
+class EdgeGINConv(MessagePassing):
+    def __init__(self, nn, eps=0, train_eps=False, **kwargs):
+        super(EdgeGINConv, self).__init__(aggr='add', **kwargs)
+        self.nn = nn
+        self.initial_eps = eps
+        if train_eps:
+            self.eps = torch.nn.Parameter(torch.Tensor([eps]))
+        else:
+            self.register_buffer('eps', torch.Tensor([eps]))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        reset(self.nn)
+        self.eps.data.fill_(self.initial_eps)
+
+    def forward(self, x, edge_index, edge_attr):
+        """"""
+        x = x.unsqueeze(-1) if x.dim() == 1 else x
+        # in the CLUTRR dataset, there is no self_loops
+        # edge_index, _ = remove_self_loops(edge_index)
+        x_i = torch.cat([x, torch.zeros(x.size(0), edge_attr.size(1)).to(x.device)], dim=1)
+        aggregated = self.propagate(edge_index, edge_attr=edge_attr, x=x)
+        out = self.nn((1 + self.eps) * x_i + aggregated)
+        return out
+
+    def message(self, x_j, edge_index, edge_attr):
+        x_j = torch.cat([x_j, edge_attr], dim=-1)
+        return x_j
+
+    def __repr__(self):
+        return '{}(nn={})'.format(self.__class__.__name__, self.nn)
 
 class EdgeGatConv(MessagePassing):
     def __init__(self,
@@ -136,11 +169,22 @@ class GatEncoder(Net):
             self.edge_embedding = torch.nn.Embedding(model_config.edge_types, model_config.graph.edge_dim)
             torch.nn.init.xavier_uniform_(self.edge_embedding.weight)
 
-        self.att1 = EdgeGatConv(self.model_config.embedding.dim, self.model_config.embedding.dim,
-                                self.model_config.graph.edge_dim, heads=self.model_config.graph.num_reads,
-                                dropout=self.model_config.graph.dropout)
-        self.att2 = EdgeGatConv(self.model_config.embedding.dim, self.model_config.embedding.dim,
-                                self.model_config.graph.edge_dim)
+        if self.model_config.graph.conv_layer == 'gat':
+            self.layer1 = EdgeGatConv(self.model_config.embedding.dim, self.model_config.embedding.dim,
+                                    self.model_config.graph.edge_dim, heads=self.model_config.graph.num_reads,
+                                    dropout=self.model_config.graph.dropout)
+            self.layer2 = EdgeGatConv(self.model_config.embedding.dim, self.model_config.embedding.dim,
+                                    self.model_config.graph.edge_dim)
+        elif self.model_config.graph.conv_layer == 'gin':
+            node_dim, edge_dim = self.model_config.embedding.dim, self.model_config.graph.edge_dim
+            self.att1 = EdgeGINConv(nn.Sequential(nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
+                                                  nn.ReLU(),
+                                                  nn.Linear(node_dim + edge_dim, node_dim)))
+            self.att2 = EdgeGINConv(nn.Sequential(nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
+                                                  nn.ReLU(),
+                                                  nn.Linear(node_dim + edge_dim, node_dim)))
+        else:
+            raise NotImplementedError('check model_config.graph.conv! it should be in [gin, gat]')
 
     def forward(self, batch, corrupt=False, corrupt_method='edge'):
         data = batch.geo_batch
