@@ -27,6 +27,7 @@ class DistillTrainer:
         :param decoder_model:
         :param max_entity_id: max entity id
         """
+        print('using distill trainer')
         self.model_config = model_config
         self.max_entity_id = max_entity_id
         self.encoder_student = encoder_model
@@ -379,10 +380,15 @@ class ContrastiveLoss(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, dim_s, dim_t, dim):
         super(Discriminator, self).__init__()
-        self.linear_s = nn.Linear(dim_s, dim)
-        self.linear_t = nn.Linear(dim_t, dim)
-        self.linear1 = nn.Linear(dim * 2, dim)
-        self.linear2 = nn.Linear(dim, 1)
+        self.linear1 = nn.Linear(dim_s + dim_t, dim * 2)
+        self.linear2 = nn.Linear(dim * 2, dim)
+        self.linear3 = nn.Linear(dim, 1)
+        self.reset_parameters()
+
+        # self.linear_s = nn.Linear(dim_s, dim)
+        # self.linear_t = nn.Linear(dim_t, dim)
+        # self.linear1 = nn.Linear(dim * 2, dim)
+        # self.linear2 = nn.Linear(dim, 1)
         # self.reset_parameters()
 
     def uniform(self, size, param):
@@ -400,6 +406,11 @@ class Discriminator(nn.Module):
                     nn.init.constant_(param, 0)
 
     def forward(self, feat_student, feat_teacher):
-        f_s, f_t = self.linear_s(feat_student).relu(), self.linear_t(feat_teacher).relu()
-        feat = torch.cat([f_s, f_t], dim=-1)
-        return self.linear2(self.linear1(feat).relu()).sigmoid()
+        feat = torch.cat([feat_student, feat_teacher], dim=1)
+        feat = self.linear1(feat).relu()
+        feat = self.linear2(feat).relu()
+        feat = self.linear3(feat)
+        return feat
+        # f_s, f_t = self.linear_s(feat_student).relu(), self.linear_t(feat_teacher).relu()
+        # feat = torch.cat([f_s, f_t], dim=-1)
+        # return self.linear2(self.linear1(feat).relu()).sigmoid()

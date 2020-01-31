@@ -141,7 +141,7 @@ def run_experiment(config, exp, resume=False):
     experiment.model.encoder = experiment.model.encoder.to(device)
     experiment.model.decoder = experiment.model.decoder.to(device)
     print(experiment.model)
-    if config.model.name.startswith('dual'):
+    if config.model.dual.load_pretrained_teacher:
         experiment.trainer = DistillTrainer(
             config.model, experiment.model.encoder,
             experiment.model.decoder,
@@ -172,7 +172,7 @@ def run_experiment(config, exp, resume=False):
         experiment.iteration_index.test = 0
     experiment.comet_ml = exp
 
-    if config.model.name.startswith('dual'):
+    if config.model.dual.load_pretrained_teacher:
         # check the loaded pretrained Graph encoder
         check_pretrained_gnn_acc(experiment, prefix='before_train')
 
@@ -181,7 +181,7 @@ def run_experiment(config, exp, resume=False):
     else:
         _run_one_epoch_test(experiment)
 
-    if config.model.name.startswith('dual'):
+    if config.model.dual.load_pretrained_teacher:
         # check the loaded pretrained Graph encoder
         check_pretrained_gnn_acc(experiment, prefix='after_train')
 
@@ -238,7 +238,7 @@ def _run_epochs(experiment):
                 line = ['config_id', 'exp_id'] + list(files)
                 writer.write(','.join(line) + '\n')
         with open(acc_to_file, 'a') as writer:
-            line = [experiment.config.general.id, experiment.comet_ml.id] + list(map(str, accs))
+            line = [experiment.config.general.id, experiment.comet_ml.id] + list(map('{:.3f}'.format, accs))
             writer.write(','.join(line) + '\n')
 
 
@@ -349,7 +349,7 @@ def _run_one_epoch(dataloader, experiment, mode, filename=''):
         log_batch_losses.append(batch_loss)
         step = (experiment.epoch_index-1)*batch_size + batch_idx
         experiment.comet_ml.log_metric("batch_loss", batch_loss, step=step)
-        if experiment.config.model.name.startswith('dual'):
+        if experiment.config.model.dual.load_pretrained_teacher:
             if 'contrastive_loss' in batch.__dict__:
                 experiment.comet_ml.log_metric("contrastive_loss", batch.contrastive_loss, step=step)
             if 'contrastive_acc' in batch.__dict__:

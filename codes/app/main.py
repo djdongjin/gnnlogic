@@ -14,6 +14,22 @@ import socket
 
 base_path = os.path.dirname(os.path.realpath(__file__)).split('codes')[0]
 
+pretrained_task_to_exp_id = {
+    'data_1.2,1.3': '6d433116803640ffbe67375aa03df3ac',
+    'data_1.3,1.4': '83589fa92bef4dd28432d9f9cde37b06',
+    'data_1.4,1.5': '2ac8c6c9935b4397bd786eeec3144fc5',
+    'data_1.5,1.6': 'f7a1de2dee65468cbc7824994d2f039c',
+    'data_1.6,1.7': 'e1d21726e95d4bb6b35f8a48e03eff2d',
+    'data_1.7,1.8': 'edef5789d67e436d988fc5bfe9da1170',
+    'data_1.8,1.9': '',
+    'data_1.9,1.10': '',
+    'data_1.2,1.3_clean': 'eea017269cfb4606b4e50603b3af50e1',
+    'data_4.2,4.3_disconnected': '6570da6fe65b45668b826827df2cd4e2',
+    'data_3.2,3.3_irrelevant':'043f5959d60d4fd589f2120b5cd26a6a',
+    'data_2.2,2.3_supporting': 'bc00650921dd461aa990fa8e7965bf37',
+
+}
+
 def start(config, experiment):
     config = Dict(config)
     set_seed(seed=config.general.seed)
@@ -75,6 +91,9 @@ if __name__ == '__main__':
         config = get_config(config_id=config_id)
         if dataset:
             config['dataset']['data_path'] = dataset
+        # TODO: hot fix to automate pretrained model loading
+        if 'kd' in config_id or 'max' in config_id:
+            config['model']['dual']['teacher_exp_id'] = pretrained_task_to_exp_id[dataset]
         log_base = config['general']['base_path']
         logging.basicConfig(
             level=logging.INFO,
