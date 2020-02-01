@@ -199,12 +199,18 @@ class DistillTrainer:
                                                                                     self.decoder_teacher, batch)
             # generate corrupted feat rep
             if self.model_config.dual.corrupt and not self.model_config.dual.batch_contrastive:
-                logits_t_neg, attn_t_neg, hid_rep_t_neg, feat_t_neg, query_rep_t_neg = self.encoder_decoder(
-                                                                    self.encoder_teacher,
-                                                                    self.decoder_teacher,
-                                                                    batch,
-                                                                    corrupt=True,
-                                                                    corrupt_method=self.model_config.dual.corrupt_method)
+                all_feat_t_neg, all_query_rep_t_neg = [], []
+                for sampling_time in range(self.model_config.dual.neg_sample_size):
+                    _, _, _, feat_t_neg, query_rep_t_neg = self.encoder_decoder(
+                                                                        self.encoder_teacher,
+                                                                        self.decoder_teacher,
+                                                                        batch,
+                                                                        corrupt=True,
+                                                                        corrupt_method=self.model_config.dual.corrupt_method)
+                    all_feat_t_neg.append(feat_t_neg)
+                    all_query_rep_t_neg.append(query_rep_t_neg)
+                feat_t_neg = torch.stack(all_feat_t_neg, dim=1)
+                query_rep_t_neg = torch.stack(all_query_rep_t_neg, dim=1)
         # --------------- teacher network --------------
         # --------------- student network --------------
         logits_s, attn_s, hid_rep_s, feat_s, query_rep_s = self.encoder_decoder(self.encoder_student,
@@ -360,21 +366,30 @@ class ContrastiveLoss(nn.Module):
     def __init__(self, dim_s, dim_t, dim, use_query_rep=False):
         super(ContrastiveLoss, self).__init__()
         self.discriminator = Discriminator(dim_s, dim_t, dim)
-        self.loss = nn.BCELoss()
+        self.loss = nn.BCEWithLogitsLoss\
+            ()
         self.user_query_rep = use_query_rep
 
     def forward(self, feat_s, query_rep_s, feat_t_pos, query_rep_t_pos, feat_t_neg, query_rep_t_neg):
         if self.user_query_rep:
             feat_s = torch.cat([feat_s, query_rep_s], dim=1)
-            feat_t_pos = torch.cat([feat_t_pos, query_rep_t_pos], dim=1)
-            feat_t_neg = torch.cat([feat_t_neg, query_rep_t_neg], dim=1)
-        pos = self.discriminator(feat_s, feat_t_pos)
-        neg = self.discriminator(feat_s, feat_t_neg)
+            feat_t_pos = torch.cat([feat_t_pos, query_rep_t_pos], dim=-1)
+            feat_t_neg = torch.cat([feat_t_neg, query_rep_t_neg], dim=-1)
+        print(feat_s.shape, feat_t_pos.shape, feat_t_neg.shape)
+        # feat_s, feat_t_pos : [B, dim]
+        # feat_t_neg : [B, ns_size, dim]
+        batch_size, neg_sample_size, dim = feat_t_neg.shape
+        feat_t_neg = feat_t_neg.view(-1, dim)
+        pos = self.discriminator(feat_s, feat_t_pos).squeeze()
+        neg = self.discriminator(feat_s.repeat(neg_sample_size, 1), feat_t_neg).squeeze()
+        print(feat_s.repeat(neg_sample_size, 1).shape, feat_t_neg.shape)
+        print(pos.shape, neg.shape)
+        acc = (torch.sum((pos >= 0.5) == torch.ones_like(pos)) + torch.sum((neg < 0.5) == torch.ones_like(neg))) / \
+                (pos.shape[0] + neg.size(0))
+        print(pos, torch.ones_like(pos).to(pos.device))
+        print(pos.shape, torch.ones_like(pos).to(pos.device).shape)
 
-        acc = torch.sum((pos >= 0.5) == torch.ones_like(pos)) / pos.size(0) + \
-              torch.sum((neg < 0.5) == torch.ones_like(pos)) / neg.size(0)
-
-        return self.loss(pos, torch.ones_like(pos)) + self.loss(neg, torch.ones_like(neg)), acc
+        return self.loss(pos, torch.ones_like(pos).to(pos.device)) + self.loss(neg, torch.ones_like(neg).to(neg.device)), acc
 
 
 class Discriminator(nn.Module):
@@ -399,7 +414,7 @@ class Discriminator(nn.Module):
     def reset_parameters(self):
         for nm, param in self.named_parameters():
             if param.requires_grad:
-                if 'weight' in param:
+                if 'weight' in nm:
                     size = param.size(0)
                     self.uniform(size, param)
                 else:

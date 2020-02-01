@@ -20,7 +20,7 @@ pretrained_task_to_exp_id = {
     'data_1.4,1.5': '2ac8c6c9935b4397bd786eeec3144fc5',
     'data_1.5,1.6': 'f7a1de2dee65468cbc7824994d2f039c',
     'data_1.6,1.7': 'e1d21726e95d4bb6b35f8a48e03eff2d',
-    'data_1.7,1.8': 'edef5789d67e436d988fc5bfe9da1170',
+    'data_1.7,1.8': 'f0d866f14f1b4df2b1c09a5f915bf526',
     'data_1.8,1.9': '',
     'data_1.9,1.10': '',
     'data_1.2,1.3_clean': 'eea017269cfb4606b4e50603b3af50e1',
@@ -93,7 +93,7 @@ if __name__ == '__main__':
             config['dataset']['data_path'] = dataset
         # TODO: hot fix to automate pretrained model loading
         if 'kd' in config_id or 'max' in config_id:
-            config['model']['dual']['teacher_exp_id'] = pretrained_task_to_exp_id[dataset]
+            config['model']['dual']['teacher_exp_id'] = pretrained_task_to_exp_id[config['dataset']['data_path']]
         log_base = config['general']['base_path']
         logging.basicConfig(
             level=logging.INFO,
