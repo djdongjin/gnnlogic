@@ -27,7 +27,7 @@ class Trainer:
         self.encoder_model.max_entity_id = max_entity_id
         self.decoder_model.max_entity_id = max_entity_id
         self.padding = True
-        if model_config.name == 'graph':
+        if model_config.name.startswith('graph'):
             self.padding = False
         # initialize embeddings
         if self.model_config.embedding.entity_embedding_policy in ['random','fixed']:
@@ -42,7 +42,6 @@ class Trainer:
             self.criteria = nn.NLLLoss()
         else:
             raise NotImplementedError("Provided loss criteria not implemented")
-        self.tf_ratio = model_config.tf_ratio
 
     def get_optimizers(self):
         '''Method to return the list of optimizers for the trainer'''

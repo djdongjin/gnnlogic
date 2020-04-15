@@ -375,19 +375,18 @@ class ContrastiveLoss(nn.Module):
             feat_s = torch.cat([feat_s, query_rep_s], dim=1)
             feat_t_pos = torch.cat([feat_t_pos, query_rep_t_pos], dim=-1)
             feat_t_neg = torch.cat([feat_t_neg, query_rep_t_neg], dim=-1)
-        print(feat_s.shape, feat_t_pos.shape, feat_t_neg.shape)
+        print('feat dim:', feat_s.shape, feat_t_pos.shape, feat_t_neg.shape)
         # feat_s, feat_t_pos : [B, dim]
         # feat_t_neg : [B, ns_size, dim]
         batch_size, neg_sample_size, dim = feat_t_neg.shape
         feat_t_neg = feat_t_neg.view(-1, dim)
-        pos = self.discriminator(feat_s, feat_t_pos).squeeze()
-        neg = self.discriminator(feat_s.repeat(neg_sample_size, 1), feat_t_neg).squeeze()
-        print(feat_s.repeat(neg_sample_size, 1).shape, feat_t_neg.shape)
-        print(pos.shape, neg.shape)
+        pos = self.discriminator(feat_s, feat_t_pos)
+        neg = self.discriminator(feat_s.repeat(neg_sample_size, 1), feat_t_neg)
+        print('pos/neg shape: ', pos.shape, neg.shape)
         acc = (torch.sum((pos >= 0.5) == torch.ones_like(pos)) + torch.sum((neg < 0.5) == torch.ones_like(neg))) / \
                 (pos.shape[0] + neg.size(0))
-        print(pos, torch.ones_like(pos).to(pos.device))
-        print(pos.shape, torch.ones_like(pos).to(pos.device).shape)
+        # print(pos, torch.ones_like(pos).to(pos.device))
+        # print(pos.shape, torch.ones_like(pos).to(pos.device).shape)
 
         return self.loss(pos, torch.ones_like(pos).to(pos.device)) + self.loss(neg, torch.ones_like(neg).to(neg.device)), acc
 

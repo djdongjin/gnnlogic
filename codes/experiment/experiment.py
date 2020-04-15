@@ -235,11 +235,12 @@ def _run_epochs(experiment):
         acc_to_file = os.path.join(acc_to_file, '{}.csv'.format(experiment.config.dataset.data_path))
         if not os.path.exists(acc_to_file):
             with open(acc_to_file, 'w') as writer:
-                line = ['config_id', 'exp_id'] + list(files)
-                writer.write(','.join(line) + '\n')
+                line = ['config_id', 'exp_id', 'seed'] + list(files)
+                writer.write('&'.join(line) + '\n')
         with open(acc_to_file, 'a') as writer:
-            line = [experiment.config.general.id, experiment.comet_ml.id] + list(map('{:.3f}'.format, accs))
-            writer.write(','.join(line) + '\n')
+            accs = [ac * 100 for ac in accs]
+            line = [str(experiment.config.general.id), str(experiment.comet_ml.id), str(experiment.config.general.seed)] + list(map('{:.2f}'.format, accs))
+            writer.write('&'.join(line) + '\n')
 
 
 def _run_one_epoch_train_val(experiment):
